@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../features/auth/store/useAuthStore';
 import { authApi } from '../features/auth/services/authApi';
+import { Eye, EyeOff } from 'lucide-react';
 
 export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   
   const navigate = useNavigate();
@@ -77,14 +79,29 @@ export default function LoginPage() {
           </div>
           <div>
             <label className="block text-sm font-medium text-neutral-400 mb-1">Password</label>
-            <input 
-              type="password" 
-              required
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              className="w-full bg-neutral-950 border border-neutral-800 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors"
-              placeholder="••••••••"
-            />
+            <div className="relative">
+              <input 
+                type={showPassword ? 'text' : 'password'} 
+                required
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-4 pr-11 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors"
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-neutral-400 hover:text-white transition-colors rounded-lg focus:outline-none"
+                title={showPassword ? "Hide password" : "Show password"}
+                tabIndex={-1}
+              >
+                {showPassword ? (
+                  <EyeOff size={18} className="text-neutral-400 hover:text-white" />
+                ) : (
+                  <Eye size={18} className="text-neutral-400 hover:text-white" />
+                )}
+              </button>
+            </div>
           </div>
           
           <button 
