@@ -313,20 +313,82 @@ systemctl enable eng-planner.service
 
 ---
 
-## 8. Continuous Updates & Deployment (CI/CD)
+## 8. Continuous Updates & Deployment (From `git add` to Production)
 
-Whenever you push new updates to your Git repository, run the following commands on the server:
+Follow this complete lifecycle whenever you make code changes locally and want to deploy them to the live production server:
+
+```
+[Local PC: Windows]
+  1. Modify files & test
+  2. git add .
+  3. git commit -m "your message"
+  4. git push origin main
+              │
+              ▼ (GitHub Repository)
+              │
+[Remote Server: Ubuntu 72.62.254.60]
+  5. cd /var/www/eng_planner
+  6. git fetch origin main
+  7. git pull origin main
+  8. docker compose up -d --build
+  9. docker compose ps (Verify)
+```
+
+### Phase A: On Your Local PC (Windows)
+```bash
+# 1. Stage all your changes
+git add .
+
+# 2. Commit with a descriptive message
+git commit -m "feat: added new features"
+
+# 3. Push changes to GitHub
+git push origin main
+```
+
+---
+
+### Phase B: On Your Production Server (`root@72.62.254.60`)
+SSH into your server and run:
 
 ```bash
+# 1. Navigate to the project directory
 cd /var/www/eng_planner
 
-# 1. Pull latest changes
+# 2. Fetch the latest branch information
+git fetch origin main
+
+# 3. Pull the new commits
 git pull origin main
 
-# 2. Rebuild and restart containers with zero-downtime recreation
+# 4. Rebuild updated containers and restart seamlessly
 docker compose up -d --build
 
-# 3. Clean up dangling images to save disk space
+# 5. Verify all containers are running
+docker compose ps
+```
+
+---
+
+### Phase C: Special Scenarios During Updates
+
+#### 1. If You Changed Database Models (`schema.prisma`):
+```bash
+docker compose exec backend npx prisma db push
+```
+
+#### 2. If You Updated Frontend Only (Fast Rebuild):
+```bash
+docker compose up -d --build frontend
+```
+
+#### 3. If You Updated Backend Only (Fast Rebuild):
+```bash
+docker compose up -d --build backend
+```
+
+#### 4. Clean Up Old Build Images (Freeing Disk Space):
+```bash
 docker image prune -f
 ```
 

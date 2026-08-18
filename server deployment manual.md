@@ -289,20 +289,89 @@ systemctl enable eng-planner.service
 
 ---
 
-## 7. How to Deploy Updates (CI/CD)
+## 7. How to Deploy Updates (From `git add` to Production)
 
-Whenever you push new features or fixes to GitHub:
+Follow this complete lifecycle whenever you make code changes locally and want to deploy them to the live production server:
+
+```
+[Local PC: Windows]
+  1. Modify files & test
+  2. git add .
+  3. git commit -m "your message"
+  4. git push origin main
+              │
+              ▼ (GitHub Repository)
+              │
+[Remote Server: Ubuntu 72.62.254.60]
+  5. cd /var/www/eng_planner
+  6. git fetch origin main
+  7. git pull origin main
+  8. docker compose up -d --build
+  9. docker compose ps (Verify)
+```
+
+### Phase A: On Your Local PC (Windows)
+Once you finish modifying files on your computer:
 
 ```bash
+# 1. Check which files were changed
+git status
+
+# 2. Stage all your changes
+git add .
+
+# 3. Commit with a descriptive message
+git commit -m "feat: updated canvas tools and styling"
+
+# 4. Push changes to GitHub
+git push origin main
+```
+
+---
+
+### Phase B: On Your Production Server (`root@72.62.254.60`)
+SSH into your server and run:
+
+```bash
+# 1. Navigate to the project directory
 cd /var/www/eng_planner
 
-# 1. Pull latest code
+# 2. Fetch the latest branch information from GitHub
+git fetch origin main
+
+# 3. Pull the new commits into the production directory
 git pull origin main
 
-# 2. Rebuild and restart containers
+# 4. Rebuild updated containers and restart seamlessly in background
 docker compose up -d --build
 
-# 3. Clean unused build cache
+# 5. Verify all containers are running and healthy
+docker compose ps
+```
+
+---
+
+### Phase C: Special Scenarios During Updates
+
+#### 1. If You Changed Database Schema (`schema.prisma`):
+If your updates included new models or database columns:
+```bash
+docker compose exec backend npx prisma db push
+```
+
+#### 2. If You Updated Frontend Only (Fast Rebuild):
+```bash
+docker compose up -d --build frontend
+```
+
+#### 3. If You Updated Backend Only (Fast Rebuild):
+```bash
+docker compose up -d --build backend
+```
+
+#### 4. Clean Up Old Build Images (Freeing Disk Space):
+Docker caches previous build layers. Periodically run this to free server disk space:
+```bash
 docker image prune -f
 ```
 
