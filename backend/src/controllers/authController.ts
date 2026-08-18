@@ -7,10 +7,11 @@ export const authController = {
       const result = await authService.register(req.body);
       res.status(201).json(result);
     } catch (error: any) {
+      console.error('Register error:', error);
       if (error.message === 'Email is already in use') {
         res.status(400).json({ error: error.message });
       } else {
-        res.status(500).json({ error: 'Failed to register user' });
+        res.status(500).json({ error: error.message || 'Failed to register user' });
       }
     }
   },
@@ -20,10 +21,11 @@ export const authController = {
       const result = await authService.login(req.body);
       res.status(200).json(result);
     } catch (error: any) {
+      console.error('Login error:', error);
       if (error.message === 'Invalid email or password') {
         res.status(401).json({ error: error.message });
       } else {
-        res.status(500).json({ error: 'Failed to login' });
+        res.status(500).json({ error: error.message || 'Failed to login' });
       }
     }
   },
