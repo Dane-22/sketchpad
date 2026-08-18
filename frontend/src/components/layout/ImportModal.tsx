@@ -62,7 +62,7 @@ const ImportModal = () => {
           setProgress(Math.min(fakeProgress, 90));
         }, 300);
 
-        const response = await fetch('http://127.0.0.1:5005/api/v1/convert', {
+        const response = await fetch('/api/v1/convert', {
           method: 'POST',
           body: formData,
         });

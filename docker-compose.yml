@@ -1,0 +1,103 @@
+services:
+  # ============================================================================
+  # 1. MySQL Database Service
+  # ============================================================================
+  mysql:
+    image: mysql:8.0
+    container_name: eng_planner_mysql
+    restart: unless-stopped
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --max_allowed_packet=256M
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-eng_root_supersecret_change_me}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-eng_planner}
+      MYSQL_USER: ${MYSQL_USER:-eng_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-eng_db_password_change_me}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./eng_planner.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    ports:
+      - "${HOST_DB_PORT:-3306}:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p${MYSQL_ROOT_PASSWORD:-eng_root_supersecret_change_me} || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks:
+      - eng_network
+
+  # ============================================================================
+  # 2. Redis Caching Service
+  # ============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: eng_planner_redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - eng_network
+
+  # ============================================================================
+  # 3. Backend API & WebSocket Service
+  # ============================================================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: eng_planner_backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 5005
+      DATABASE_URL: ${DATABASE_URL:-mysql://eng_user:eng_db_password_change_me@mysql:3306/eng_planner}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      JWT_SECRET: ${JWT_SECRET:-super-secret-jwt-key-replace-me-in-production}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - eng_network
+
+  # ============================================================================
+  # 4. Frontend Web App & Nginx Reverse Proxy Service
+  # ============================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: eng_planner_frontend
+    restart: unless-stopped
+    ports:
+      - "${HOST_HTTP_PORT:-80}:80"
+    depends_on:
+      - backend
+    networks:
+      - eng_network
+
+# ==============================================================================
+# Volumes and Networks Definition
+# ==============================================================================
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  eng_network:
+    driver: bridge

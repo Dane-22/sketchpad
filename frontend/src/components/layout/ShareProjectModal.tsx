@@ -18,7 +18,7 @@ const ShareProjectModal: React.FC<ShareProjectModalProps> = ({ isOpen, onClose, 
     if (isOpen && projectId) {
       const token = localStorage.getItem('token');
       if (!token) return;
-      axios.get(`http://localhost:5000/api/projects/${projectId}`, {
+      axios.get(`/api/v1/projects/${projectId}`, {
         headers: { Authorization: `Bearer ${token}` }
       })
       .then(res => {
@@ -47,7 +47,7 @@ const ShareProjectModal: React.FC<ShareProjectModalProps> = ({ isOpen, onClose, 
     setIsUpdating(true);
     try {
       const token = localStorage.getItem('token');
-      await axios.put(`http://localhost:5000/api/projects/${projectId}/public`, 
+      await axios.put(`/api/v1/projects/${projectId}/public`, 
         { isPublic: !isPublic },
         { headers: { Authorization: `Bearer ${token}` } }
       );
