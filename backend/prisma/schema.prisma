@@ -26,6 +26,8 @@ model User {
   commentReplies CommentReply[]
   groupMembers   GroupMember[]
   chatMessages   ChatMessage[]
+
+  @@map("user")
 }
 
 model Project {
@@ -42,6 +44,8 @@ model Project {
   updatedAt   DateTime      @updatedAt
   comments    Comment[]
   channels    ChatChannel[]
+
+  @@map("project")
 }
 
 model Comment {
@@ -57,6 +61,8 @@ model Comment {
   createdAt  DateTime       @default(now())
   updatedAt  DateTime       @updatedAt
   replies    CommentReply[]
+
+  @@map("comment")
 }
 
 model CommentReply {
@@ -68,6 +74,8 @@ model CommentReply {
   content   String   @db.Text
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@map("commentreply")
 }
 
 model ChatChannel {
@@ -81,6 +89,8 @@ model ChatChannel {
   updatedAt   DateTime      @updatedAt
   members     GroupMember[]
   messages    ChatMessage[]
+
+  @@map("chatchannel")
 }
 
 model GroupMember {
@@ -93,6 +103,7 @@ model GroupMember {
   joinedAt  DateTime    @default(now())
 
   @@unique([channelId, userId])
+  @@map("groupmember")
 }
 
 model ChatMessage {
@@ -105,4 +116,6 @@ model ChatMessage {
   content     String       @db.Text
   attachments Json?
   createdAt   DateTime     @default(now())
+
+  @@map("chatmessage")
 }
