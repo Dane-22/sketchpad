@@ -1,0 +1,143 @@
+import { Request, Response } from 'express';
+import fs from 'fs';
+import path from 'path';
+import { exec } from 'child_process';
+import crypto from 'crypto';
+import DxfParser from 'dxf-parser';
+import { Semaphore } from '../utils/semaphore';
+import { redisClient } from '../config/redis';
+
+const CACHE_TTL = 86400; // 24 hours in seconds
+
+const converterSemaphore = new Semaphore(2); // Limit to 2 concurrent ODA conversions
+
+
+export const uploadAndConvert = async (req: Request, res: Response) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded.' });
+    }
+
+    const uploadedFilePath = req.file.path;
+    const fileName = req.file.originalname;
+    const ext = path.extname(fileName).toLowerCase();
+
+    // 1. Generate SHA-256 hash of the uploaded file
+    const fileBuffer = fs.readFileSync(uploadedFilePath);
+    const hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+    const cacheKey = `dxf:hash:${hash}`;
+
+    // 2. Check if we already have this file converted and cached
+    if (redisClient.isOpen) {
+      try {
+        const cachedStr = await redisClient.get(cacheKey);
+        if (cachedStr) {
+          // It's in cache! Clean up temp uploaded file and return instantly.
+          if (fs.existsSync(uploadedFilePath)) fs.unlinkSync(uploadedFilePath);
+          const parsedDxf = JSON.parse(cachedStr);
+          return res.json({ parsedDxf });
+        }
+      } catch (err) {
+        console.warn(`Redis get error for key ${cacheKey}:`, err);
+      }
+    }
+
+    if (ext === '.dxf') {
+      // Direct DXF parsing
+      const fileContent = fs.readFileSync(uploadedFilePath, 'utf-8');
+      const parser = new DxfParser();
+      try {
+        const parsedDxf = parser.parseSync(fileContent);
+        if (fs.existsSync(uploadedFilePath)) fs.unlinkSync(uploadedFilePath); // cleanup
+        
+        // Save to cache
+        if (redisClient.isOpen) {
+          redisClient.setEx(cacheKey, CACHE_TTL, JSON.stringify(parsedDxf)).catch(err => console.error(err));
+        }
+
+        return res.json({ parsedDxf });
+      } catch (err: any) {
+        if (fs.existsSync(uploadedFilePath)) fs.unlinkSync(uploadedFilePath);
+        return res.status(500).json({ error: 'Failed to parse DXF: ' + err.message });
+      }
+    }
+
+    if (ext !== '.dwg' && ext !== '.skb') {
+      if (fs.existsSync(uploadedFilePath)) fs.unlinkSync(uploadedFilePath);
+      return res.status(400).json({ error: 'Unsupported file format.' });
+    }
+
+    if (ext === '.skb') {
+      if (fs.existsSync(uploadedFilePath)) fs.unlinkSync(uploadedFilePath);
+      // NOTE: SketchUp files require the SketchUp C API. ODA doesn't support SKB natively without the BIM SDK.
+      // We'll return an error explaining this limitation for SKB in Option 1.
+      return res.status(400).json({ error: '.skb conversion requires Autodesk Forge or SKP SDK. Only .dwg is supported by ODA File Converter locally.' });
+    }
+
+    // --- DWG Conversion using ODA File Converter ---
+    
+    // Create unique temp directories for this job
+    const jobId = crypto.randomUUID();
+    const inputDir = path.join(__dirname, '..', '..', 'tmp', `in_${jobId}`);
+    const outputDir = path.join(__dirname, '..', '..', 'tmp', `out_${jobId}`);
+
+    fs.mkdirSync(inputDir, { recursive: true });
+    fs.mkdirSync(outputDir, { recursive: true });
+
+    // Move the uploaded file into the input directory
+    const newFilePath = path.join(inputDir, fileName);
+    fs.renameSync(uploadedFilePath, newFilePath);
+
+    // Allow user to set the path in .env, otherwise default to standard Windows path
+    const odaPath = process.env.ODA_CONVERTER_PATH || "C:\\Program Files\\ODA\\ODAFileConverter 27.1.0\\ODAFileConverter.exe";
+    
+    const command = `"${odaPath}" "${inputDir}" "${outputDir}" "ACAD2018" "DXF" "0" "0"`;
+
+    // Queue the conversion using our Semaphore
+    await converterSemaphore.run(async () => {
+      return new Promise<void>((resolve, reject) => {
+        exec(command, (error, stdout, stderr) => {
+          try {
+            if (error) {
+              console.error("ODA Converter Error:", error);
+              throw new Error('ODA File Converter failed. Is it installed at ' + odaPath + '?');
+            }
+
+            // Find the output .dxf file
+            const convertedFiles = fs.readdirSync(outputDir);
+            const dxfFile = convertedFiles.find(f => f.toLowerCase().endsWith('.dxf'));
+            
+            if (!dxfFile) {
+              throw new Error('Conversion failed: No DXF file output found.');
+            }
+
+            const dxfPath = path.join(outputDir, dxfFile);
+            const fileContent = fs.readFileSync(dxfPath, 'utf-8');
+            
+            const parser = new DxfParser();
+            const parsedDxf = parser.parseSync(fileContent);
+
+            // Save to cache
+            if (redisClient.isOpen) {
+              redisClient.setEx(cacheKey, CACHE_TTL, JSON.stringify(parsedDxf)).catch(err => console.error(err));
+            }
+
+            res.json({ parsedDxf });
+            resolve();
+          } catch (err: any) {
+            res.status(500).json({ error: err.message });
+            reject(err);
+          } finally {
+            // Cleanup temp directories
+            if (fs.existsSync(inputDir)) fs.rmSync(inputDir, { recursive: true, force: true });
+            if (fs.existsSync(outputDir)) fs.rmSync(outputDir, { recursive: true, force: true });
+          }
+        });
+      });
+    });
+
+  } catch (error: any) {
+    console.error("Upload error:", error);
+    res.status(500).json({ error: 'Server error during upload.' });
+  }
+};

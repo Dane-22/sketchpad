@@ -1,0 +1,815 @@
+import React, { useRef, useState, useEffect } from 'react';
+import { Stage, Layer, Rect, RegularPolygon, Circle } from 'react-konva';
+import Konva from 'konva';
+import GridLayer from './GridLayer';
+import DrawingLayer from './DrawingLayer';
+import OverlayLayer from './OverlayLayer';
+import { useCanvasState } from '../../features/planner/hooks/useCanvasState';
+import { getRelativePointerPosition } from '../../features/planner/utils/geometryMath';
+import { CanvasElement } from '../../types/canvas';
+import UcsIcon from './overlays/UcsIcon';
+import { useCollaboration } from '../../features/planner/hooks/useCollaboration';
+import RemoteCursorsLayer from './RemoteCursorsLayer';
+import { calculateSnapPoint, SnapType } from '../../features/planner/utils/snapping';
+import { CommentPinLayer } from './CommentPinLayer';
+import { CanvasComment } from '../../types/comment';
+import { CanvasContextMenu } from './overlays/CanvasContextMenu';
+
+interface CadCanvasProps {
+  comments?: CanvasComment[];
+  activeCommentId?: string | null;
+  onSelectComment?: (commentId: string) => void;
+  pendingPinPos?: { x: number; y: number } | null;
+  isAddingComment?: boolean;
+  onDropPinAtPos?: (pos: { x: number; y: number }) => void;
+}
+
+const CadCanvas: React.FC<CadCanvasProps> = ({
+  comments = [],
+  activeCommentId = null,
+  onSelectComment,
+  pendingPinPos = null,
+  isAddingComment = false,
+  onDropPinAtPos,
+}) => {
+  const stageRef = useRef<Konva.Stage>(null);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
+  
+  const { 
+    elements, setElements, 
+    activeTool, setActiveTool,
+    stageScale, setStageScale, 
+    stagePos, setStagePos,
+    orthoMode, snapMode,
+    textColor, updateElement, removeElement, theme,
+    commitHistory, activeLayerId, stageRotation, stagePitch,
+    groups, setGroups, setSelectedElementIds,
+    pendingCoordinate, setPendingCoordinate
+  } = useCanvasState();
+
+  const { remoteCursors, emitCursorMove } = useCollaboration();
+
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [currentLineId, setCurrentLineId] = useState<string | null>(null);
+  const [activePolylineId, setActivePolylineId] = useState<string | null>(null);
+  const [activeDimensionId, setActiveDimensionId] = useState<string | null>(null);
+  const [dimensionStep, setDimensionStep] = useState<number>(0);
+  const [isPanning, setIsPanning] = useState(false);
+  const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; elementId: string } | null>(null);
+  const [snapIndicator, setSnapIndicator] = useState<{ point: {x: number, y: number}, type: SnapType } | null>(null);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (containerRef.current) {
+        setDimensions({
+          width: containerRef.current.offsetWidth,
+          height: containerRef.current.offsetHeight,
+        });
+      }
+    };
+
+    const handleEditText = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail && customEvent.detail.id) {
+        setEditingTextId(customEvent.detail.id);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('edit-text', handleEditText);
+    handleResize();
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('edit-text', handleEditText);
+    };
+  }, []);
+
+  // Update text color of the currently editing text if the user changes the color from the ribbon
+  useEffect(() => {
+    if (editingTextId) {
+      updateElement(editingTextId, { stroke: textColor });
+    }
+  }, [textColor, editingTextId, updateElement]);
+
+  const handleWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
+    if (e.evt.cancelable) {
+      e.evt.preventDefault();
+    }
+    if (!stageRef.current) return;
+
+    const scaleBy = 1.1;
+    const stage = stageRef.current;
+    const oldScale = stage.scaleX();
+    
+    const pointer = stage.getPointerPosition();
+    if (!pointer) return;
+
+    // Use our geometry function which handles rotation correctly
+    const mousePointTo = getRelativePointerPosition(stage);
+
+    const newScale = e.evt.deltaY < 0 ? oldScale * scaleBy : oldScale / scaleBy;
+    if (newScale < 0.1 || newScale > 10) return;
+
+    setStageScale(newScale);
+
+    // Calculate new stage position
+    // Since transform applies offset -> scale -> rotate -> position
+    // newPos = pointer - rotated_scaled_point
+    const rad = stageRotation * Math.PI / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const pitchCos = Math.cos(stagePitch * Math.PI / 180);
+
+    const scaledX = mousePointTo.x * newScale;
+    const scaledY = mousePointTo.y * newScale * pitchCos;
+
+    const rotatedX = scaledX * cos - scaledY * sin;
+    const rotatedY = scaledX * sin + scaledY * cos;
+
+    setStagePos({
+      x: pointer.x - rotatedX,
+      y: pointer.y - rotatedY,
+    });
+  };
+
+  const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    // Handle middle mouse button for panning
+    if (e.evt.button === 1) {
+      e.evt.preventDefault();
+      setIsPanning(true);
+      return;
+    }
+
+    if (!stageRef.current) return;
+
+    if (isAddingComment && onDropPinAtPos) {
+      const pos = getRelativePointerPosition(stageRef.current);
+      onDropPinAtPos(pos);
+      return;
+    }
+
+    if (activeTool === 'select' || activeTool === 'symbol' || activeTool === 'eraser') return;
+    
+    let pos = getRelativePointerPosition(stageRef.current);
+
+    
+    // Apply snapping
+    const snapResult = calculateSnapPoint(pos, elements, 50, snapMode, stageScale);
+    pos = snapResult.point;
+
+    if (activeTool === 'text') {
+      const id = Date.now().toString();
+      const newElement: CanvasElement = {
+        id,
+        type: 'text',
+        x: pos.x,
+        y: pos.y,
+        text: '',
+        stroke: textColor, // Use selected textColor
+        strokeWidth: 0,
+        scaleX: 1 / stageScale,
+        scaleY: 1 / stageScale,
+        layerId: activeLayerId
+      };
+      setElements([...elements, newElement], true);
+      setEditingTextId(id);
+      setActiveTool('select');
+      return;
+    }
+    
+    if (activeTool === 'line' || activeTool === 'freehand' || activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'arc') {
+      setIsDrawing(true);
+      const id = Date.now().toString();
+      setCurrentLineId(id);
+      
+      const newElement: CanvasElement = {
+        id,
+        type: activeTool,
+        x: pos.x,
+        y: pos.y,
+        points: (activeTool === 'line' || activeTool === 'freehand') ? [pos.x, pos.y] : undefined,
+        width: activeTool === 'rectangle' ? 0 : undefined,
+        height: activeTool === 'rectangle' ? 0 : undefined,
+        radius: activeTool === 'circle' ? 0 : undefined,
+        innerRadius: activeTool === 'arc' ? 0 : undefined,
+        outerRadius: activeTool === 'arc' ? 0 : undefined,
+        angle: activeTool === 'arc' ? 0 : undefined,
+        stroke: textColor || '#00ffcc', 
+        strokeWidth: 2 / stageScale,
+        layerId: activeLayerId
+      };
+      
+      setElements([...elements, newElement], true);
+    } else if (activeTool === 'polyline' || activeTool === 'leader' || activeTool === 'area') {
+      if (activePolylineId) {
+        setElements(prev => prev.map(el => {
+          if (el.id === activePolylineId) {
+            if (orthoMode && el.points && el.points.length >= 2) {
+              const prevX = el.points[el.points.length - 2];
+              const prevY = el.points[el.points.length - 1];
+              if (Math.abs(pos.x - prevX) > Math.abs(pos.y - prevY)) {
+                pos.y = prevY;
+              } else {
+                pos.x = prevX;
+              }
+            }
+            return { ...el, points: [...(el.points || []), pos.x, pos.y] };
+          }
+          return el;
+        }), false);
+      } else {
+        const id = Date.now().toString();
+        setActivePolylineId(id);
+        const newElement: CanvasElement = {
+          id,
+          type: activeTool,
+          x: 0,
+          y: 0,
+          points: [pos.x, pos.y, pos.x, pos.y],
+          stroke: textColor || '#00ffcc',
+          strokeWidth: 2 / stageScale,
+          layerId: activeLayerId
+        };
+        setElements([...elements, newElement], true);
+      }
+    } else if (activeTool === 'dimension') {
+      if (dimensionStep === 0) {
+        // Step 0: Set P1
+        const id = Date.now().toString();
+        setActiveDimensionId(id);
+        setDimensionStep(1);
+        const newElement: CanvasElement = {
+          id,
+          type: 'dimension',
+          x: 0,
+          y: 0,
+          // P1(x,y), P2(x,y), Offset(x,y)
+          points: [pos.x, pos.y, pos.x, pos.y, pos.x, pos.y],
+          stroke: textColor || '#00ffcc',
+          strokeWidth: 1 / stageScale,
+          layerId: activeLayerId,
+          linkedElements: snapResult.elementId ? [{
+            elementId: snapResult.elementId,
+            dimensionPointIndex: 0,
+            nodeIndex: snapResult.nodeIndex
+          }] : []
+        };
+        setElements([...elements, newElement], true);
+      } else if (dimensionStep === 1) {
+        // Step 1: Set P2
+        setDimensionStep(2);
+        if (activeDimensionId && snapResult.elementId) {
+          setElements(elements.map(el => {
+            if (el.id === activeDimensionId) {
+              const linkedElements = el.linkedElements || [];
+              return {
+                ...el,
+                linkedElements: [...linkedElements, {
+                  elementId: snapResult.elementId!, // ts compiler should know it's string because of the check, but use ! just in case
+                  dimensionPointIndex: 2,
+                  nodeIndex: snapResult.nodeIndex
+                }]
+              };
+            }
+            return el;
+          }), false);
+        }
+      } else if (dimensionStep === 2) {
+        // Step 2: Set Offset and finish
+        commitHistory();
+        setActiveDimensionId(null);
+        setDimensionStep(0);
+        setActiveTool('select');
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (pendingCoordinate) {
+      let pos = { x: pendingCoordinate.x, y: pendingCoordinate.y };
+      
+      if (pendingCoordinate.isRelative) {
+        let lastPos = null;
+        if (activePolylineId) {
+          const el = elements.find(e => e.id === activePolylineId);
+          if (el && el.points && el.points.length >= 2) {
+            lastPos = { x: el.points[el.points.length - 2], y: el.points[el.points.length - 1] };
+          }
+        } else if (isDrawing && currentLineId) {
+          const el = elements.find(e => e.id === currentLineId);
+          if (el) {
+            lastPos = { x: el.x, y: el.y };
+            if ((activeTool === 'line' || activeTool === 'freehand') && el.points) {
+               lastPos = { x: el.points[0], y: el.points[1] };
+            }
+          }
+        }
+        
+        if (lastPos) {
+          // CAD convention: Y is positive upwards, but canvas Y is positive downwards.
+          // In most CAD tools, typing @10,10 goes RIGHT and UP.
+          // So we should subtract the Y coordinate.
+          pos.x = lastPos.x + pendingCoordinate.x;
+          pos.y = lastPos.y - pendingCoordinate.y; 
+        }
+      } else {
+        // Absolute CAD coordinate (0,0 is usually bottom left, but here we'll map directly to canvas coords for simplicity unless requested otherwise).
+        // Let's just use it as canvas pos for now, but invert Y to match typical CAD feel where Y goes UP?
+        // Wait, earlier tasks didn't change coordinate system, so let's keep canvas native coords (positive Y = down) for absolute, but relative Y positive = up as handled above.
+        // Actually, let's keep absolute Y as positive = down for consistency with grid, unless we invert it entirely.
+      }
+
+      if (activeTool === 'line' || activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'arc' || activeTool === 'freehand') {
+        if (!isDrawing) {
+          setIsDrawing(true);
+          const id = Date.now().toString();
+          setCurrentLineId(id);
+          
+          const newElement: CanvasElement = {
+            id,
+            type: activeTool,
+            x: pos.x,
+            y: pos.y,
+            points: (activeTool === 'line' || activeTool === 'freehand') ? [pos.x, pos.y] : undefined,
+            width: activeTool === 'rectangle' ? 0 : undefined,
+            height: activeTool === 'rectangle' ? 0 : undefined,
+            radius: activeTool === 'circle' ? 0 : undefined,
+            innerRadius: activeTool === 'arc' ? 0 : undefined,
+            outerRadius: activeTool === 'arc' ? 0 : undefined,
+            angle: activeTool === 'arc' ? 0 : undefined,
+            stroke: textColor || '#00ffcc', 
+            strokeWidth: 2 / stageScale,
+            layerId: activeLayerId
+          };
+          setElements([...elements, newElement], true);
+        } else {
+          setElements((prev) => 
+            prev.map((el) => {
+              if (el.id === currentLineId) {
+                if (activeTool === 'line') {
+                  let drawX = pos.x;
+                  let drawY = pos.y;
+                  if (orthoMode && el.points) {
+                    const startX = el.points[0];
+                    const startY = el.points[1];
+                    if (Math.abs(drawX - startX) > Math.abs(drawY - startY)) {
+                      drawY = startY;
+                    } else {
+                      drawX = startX;
+                    }
+                  }
+                  return { ...el, points: [el.points![0], el.points![1], drawX, drawY] };
+                } else if (activeTool === 'rectangle') {
+                  return { ...el, width: pos.x - el.x, height: pos.y - el.y };
+                } else if (activeTool === 'circle') {
+                  const radius = Math.sqrt(Math.pow(pos.x - el.x, 2) + Math.pow(pos.y - el.y, 2));
+                  return { ...el, radius };
+                }
+              }
+              return el;
+            })
+          , false);
+          
+          commitHistory();
+          setIsDrawing(false);
+          setCurrentLineId(null);
+        }
+      } else if (activeTool === 'polyline' || activeTool === 'leader' || activeTool === 'area') {
+        if (activePolylineId) {
+          setElements(prev => prev.map(el => {
+            if (el.id === activePolylineId) {
+              if (orthoMode && el.points && el.points.length >= 2) {
+                const prevX = el.points[el.points.length - 2];
+                const prevY = el.points[el.points.length - 1];
+                if (Math.abs(pos.x - prevX) > Math.abs(pos.y - prevY)) {
+                  pos.y = prevY;
+                } else {
+                  pos.x = prevX;
+                }
+              }
+              return { ...el, points: [...(el.points || []), pos.x, pos.y] };
+            }
+            return el;
+          }), false);
+        } else {
+          const id = Date.now().toString();
+          setActivePolylineId(id);
+          const newElement: CanvasElement = {
+            id,
+            type: activeTool,
+            x: 0,
+            y: 0,
+            points: [pos.x, pos.y, pos.x, pos.y],
+            stroke: textColor || '#00ffcc',
+            strokeWidth: 2 / stageScale,
+            layerId: activeLayerId
+          };
+          setElements([...elements, newElement], true);
+        }
+      }
+      
+      setPendingCoordinate(null);
+    }
+  }, [pendingCoordinate, activeTool, elements, isDrawing, currentLineId, activePolylineId, orthoMode, textColor, stageScale, activeLayerId, setElements, commitHistory, setPendingCoordinate]);
+
+  const handleMouseMove = () => {
+    if (!stageRef.current) return;
+    let pos = getRelativePointerPosition(stageRef.current);
+    
+    // Apply snapping conditionally
+    let snapResult: { point: { x: number; y: number }; type: SnapType; elementId?: string; nodeIndex?: number } | null = null;
+    if (snapMode && elements.length > 0) {
+      snapResult = calculateSnapPoint(pos, elements, 50, snapMode, stageScale);
+      if (snapResult && snapResult.type) {
+        pos = snapResult.point;
+      }
+    }
+
+    const newIndicator = snapResult?.type ? snapResult : null;
+    setSnapIndicator((prev) => {
+      if (!prev && !newIndicator) return prev;
+      if (prev && newIndicator && prev.type === newIndicator.type && prev.point.x === newIndicator.point.x && prev.point.y === newIndicator.point.y) {
+        return prev;
+      }
+      return newIndicator;
+    });
+    
+    emitCursorMove(pos.x, pos.y);
+
+    if (activeTool === 'polyline' || activeTool === 'leader' || activeTool === 'area') {
+      if (activePolylineId) {
+        setElements((prev) => 
+          prev.map((el) => {
+            if (el.id === activePolylineId && el.points) {
+              const newPoints = [...el.points];
+              let drawX = pos.x;
+              let drawY = pos.y;
+              
+              if (orthoMode && newPoints.length >= 4) {
+                const prevX = newPoints[newPoints.length - 4];
+                const prevY = newPoints[newPoints.length - 3];
+                if (Math.abs(drawX - prevX) > Math.abs(drawY - prevY)) {
+                  drawY = prevY;
+                } else {
+                  drawX = prevX;
+                }
+              }
+              
+              newPoints[newPoints.length - 2] = drawX;
+              newPoints[newPoints.length - 1] = drawY;
+              return { ...el, points: newPoints };
+            }
+            return el;
+          })
+        , false);
+      }
+      return;
+    }
+
+    if (activeTool === 'dimension' && activeDimensionId) {
+      setElements((prev) => 
+        prev.map((el) => {
+          if (el.id === activeDimensionId && el.points) {
+            const newPoints = [...el.points];
+            let drawX = pos.x;
+            let drawY = pos.y;
+            
+            if (orthoMode && dimensionStep === 1) {
+              const startX = newPoints[0];
+              const startY = newPoints[1];
+              if (Math.abs(drawX - startX) > Math.abs(drawY - startY)) {
+                drawY = startY;
+              } else {
+                drawX = startX;
+              }
+            }
+            
+            if (dimensionStep === 1) {
+              // Updating P2 and Offset to match cursor
+              newPoints[2] = drawX;
+              newPoints[3] = drawY;
+              newPoints[4] = drawX;
+              newPoints[5] = drawY;
+            } else if (dimensionStep === 2) {
+              // Updating only Offset
+              newPoints[4] = drawX;
+              newPoints[5] = drawY;
+            }
+            
+            return { ...el, points: newPoints };
+          }
+          return el;
+        }), false
+      );
+      return;
+    }
+
+    if (!isDrawing || !currentLineId) return;
+
+    setElements((prev) => 
+      prev.map((el) => {
+        if (el.id === currentLineId) {
+          if (activeTool === 'line') {
+            let drawX = pos.x;
+            let drawY = pos.y;
+            if (orthoMode && el.points) {
+              const startX = el.points[0];
+              const startY = el.points[1];
+              if (Math.abs(drawX - startX) > Math.abs(drawY - startY)) {
+                drawY = startY;
+              } else {
+                drawX = startX;
+              }
+            }
+            return { ...el, points: [el.points![0], el.points![1], drawX, drawY] };
+          } else if (activeTool === 'freehand') {
+            return { ...el, points: [...(el.points || []), pos.x, pos.y] };
+          } else if (activeTool === 'rectangle') {
+            return { ...el, width: pos.x - el.x, height: pos.y - el.y };
+          } else if (activeTool === 'circle') {
+            const radius = Math.sqrt(Math.pow(pos.x - el.x, 2) + Math.pow(pos.y - el.y, 2));
+            return { ...el, radius };
+          } else if (activeTool === 'arc') {
+            const radius = Math.sqrt(Math.pow(pos.x - el.x, 2) + Math.pow(pos.y - el.y, 2));
+            const angle = Math.atan2(pos.y - el.y, pos.x - el.x) * (180 / Math.PI);
+            return { ...el, innerRadius: radius * 0.8, outerRadius: radius, angle: angle > 0 ? angle : 360 + angle };
+          }
+        }
+        return el;
+      })
+    , false);
+  };
+
+  const handleMouseUp = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    if (e.evt.button === 1) {
+      setIsPanning(false);
+      return;
+    }
+    if (activeTool === 'polyline' || activeTool === 'leader' || activeTool === 'area' || activeTool === 'dimension') return;
+    if (isDrawing) {
+      commitHistory();
+    }
+    setIsDrawing(false);
+    setCurrentLineId(null);
+  };
+
+  const handleDblClick = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    if (activeTool === 'select' && e.target.getClassName() === 'Text') {
+      const id = e.target.id();
+      if (id) {
+        setEditingTextId(id);
+      }
+    } else if (activeTool === 'polyline' || activeTool === 'leader' || activeTool === 'area') {
+      if (activePolylineId) {
+        commitHistory();
+        setActivePolylineId(null);
+        setActiveTool('select');
+      }
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    stageRef.current?.setPointersPositions(e);
+    const pos = getRelativePointerPosition(stageRef.current!);
+    
+    try {
+      const dataStr = e.dataTransfer.getData('text/plain');
+      if (!dataStr) return;
+      const data = JSON.parse(dataStr);
+      if (data.type === 'symbol') {
+        const newElement: CanvasElement = {
+          id: Date.now().toString(),
+          type: 'symbol',
+          x: pos.x,
+          y: pos.y,
+          svgData: data.svgData,
+          stroke: '#ffffff',
+          strokeWidth: 2 / stageScale,
+          scaleX: 1 / stageScale,
+          scaleY: 1 / stageScale,
+        };
+        setElements([...elements, newElement]);
+        setActiveTool('select');
+      } else if (data.type === 'custom_symbol') {
+        const symbolElements: CanvasElement[] = data.elements;
+        
+        // Find center of the custom symbol
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        symbolElements.forEach(el => {
+          minX = Math.min(minX, el.x);
+          minY = Math.min(minY, el.y);
+          maxX = Math.max(maxX, el.x + (el.width || 0));
+          maxY = Math.max(maxY, el.y + (el.height || 0));
+        });
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        
+        const groupId = `group-${Date.now()}`;
+        
+        const newElements = symbolElements.map((el, i) => {
+          const offsetX = el.x - cx;
+          const offsetY = el.y - cy;
+          return {
+            ...el,
+            id: `${Date.now()}-${i}`,
+            groupId,
+            x: pos.x + offsetX,
+            y: pos.y + offsetY,
+            points: el.points ? el.points.map((p, idx) => idx % 2 === 0 ? pos.x + offsetX + (p - el.x) : pos.y + offsetY + (p - el.y)) : undefined
+          };
+        });
+        
+        setElements([...elements, ...newElements]);
+        setGroups([...groups, { id: groupId, elementIds: newElements.map(e => e.id) }]);
+        setActiveTool('select');
+        setSelectedElementIds(newElements.map(e => e.id));
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  };
+
+  return (
+    <div 
+      ref={containerRef} 
+      className={`absolute inset-0 bg-theme-main outline-none transition-colors duration-300 ${activeTool === 'eraser' ? 'cursor-cell' : isPanning ? 'cursor-grabbing' : 'cursor-crosshair'}`}
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+    >
+      <Stage
+        ref={stageRef}
+        width={dimensions.width}
+        height={dimensions.height}
+        scaleX={stageScale}
+        scaleY={stageScale * Math.cos(stagePitch * Math.PI / 180)}
+        x={stagePos.x}
+        y={stagePos.y}
+        rotation={stageRotation}
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onDblClick={handleDblClick}
+        draggable={activeTool === 'select' || isPanning}
+        onDragEnd={(e) => {
+          if (e.target === stageRef.current) {
+            setStagePos({ x: e.target.x(), y: e.target.y() });
+          }
+        }}
+      >
+        <GridLayer 
+          width={dimensions.width} 
+          height={dimensions.height} 
+          scale={stageScale}
+          x={stagePos.x}
+          y={stagePos.y}
+        />
+        <DrawingLayer 
+          onOpenContextMenu={(x, y, id) => setContextMenu({ x, y, elementId: id })} 
+        />
+        <RemoteCursorsLayer cursors={remoteCursors} />
+        {onSelectComment && (
+          <CommentPinLayer
+            comments={comments}
+            activeCommentId={activeCommentId}
+            onSelectComment={onSelectComment}
+            pendingPinPos={pendingPinPos}
+          />
+        )}
+        <OverlayLayer />
+        
+        {/* Snapping Indicator Layer */}
+        <Layer listening={false}>
+          {snapIndicator && (
+            <>
+              {snapIndicator.type === 'endpoint' && (
+                <Rect 
+                  x={snapIndicator.point.x - 5/stageScale} 
+                  y={snapIndicator.point.y - 5/stageScale} 
+                  width={10/stageScale} 
+                  height={10/stageScale} 
+                  stroke="#00ff00" 
+                  strokeWidth={2/stageScale} 
+                />
+              )}
+              {snapIndicator.type === 'midpoint' && (
+                <RegularPolygon 
+                  x={snapIndicator.point.x} 
+                  y={snapIndicator.point.y} 
+                  sides={3} 
+                  radius={7/stageScale} 
+                  stroke="#00ff00" 
+                  strokeWidth={2/stageScale} 
+                />
+              )}
+              {snapIndicator.type === 'center' && (
+                <Circle 
+                  x={snapIndicator.point.x} 
+                  y={snapIndicator.point.y} 
+                  radius={7/stageScale} 
+                  stroke="#00ff00" 
+                  strokeWidth={2/stageScale} 
+                />
+              )}
+              {snapIndicator.type === 'grid' && (
+                <Circle 
+                  x={snapIndicator.point.x} 
+                  y={snapIndicator.point.y} 
+                  radius={2/stageScale} 
+                  fill="#00ff00" 
+                />
+              )}
+            </>
+          )}
+        </Layer>
+      </Stage>
+      
+      {/* Inline Text Editor */}
+      {editingTextId && (
+        (() => {
+          const textEl = elements.find(el => el.id === editingTextId);
+          if (!textEl) return null;
+          
+          // Calculate absolute screen position
+          const x = textEl.x * stageScale + stagePos.x;
+          const y = textEl.y * stageScale + stagePos.y;
+          
+          // Calculate actual color based on theme
+          const baseStroke = textEl.stroke || '#ffffff';
+          const actualColor = (baseStroke === '#ffffff' && theme === 'light') ? '#000000' : baseStroke;
+          
+          return (
+            <textarea
+              ref={(node) => {
+                if (node && document.activeElement !== node) {
+                  // Small delay to ensure it focuses after React finishes rendering
+                  setTimeout(() => node.focus(), 10);
+                }
+              }}
+              className="absolute bg-theme-main/80 border-2 border-dashed border-theme-primary outline-none resize-none p-1 overflow-hidden whitespace-pre z-[999] rounded shadow-lg"
+              style={{
+                left: `${x}px`,
+                top: `${y}px`,
+                fontSize: `${16 * stageScale}px`,
+                color: actualColor,
+                lineHeight: 1.2,
+                minWidth: '100px',
+                minHeight: '30px',
+                fontFamily: 'sans-serif',
+                pointerEvents: 'auto'
+              }}
+              defaultValue={textEl.text || ''}
+              placeholder="Type here..."
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  e.currentTarget.blur();
+                }
+              }}
+              onBlur={(e) => {
+                const newText = e.target.value.trim();
+                if (!newText) {
+                  removeElement(editingTextId);
+                } else {
+                  updateElement(editingTextId, { text: newText });
+                }
+                setEditingTextId(null);
+              }}
+              onInput={(e) => {
+                const target = e.target as HTMLTextAreaElement;
+                target.style.height = 'auto';
+                target.style.height = (target.scrollHeight) + 'px';
+                target.style.width = 'auto';
+                target.style.width = (target.scrollWidth + 10) + 'px';
+              }}
+            />
+          );
+        })()
+      )}
+
+      {/* Visual Overlays */}
+      <UcsIcon />
+
+      {/* Canvas Element Right-Click Context Menu */}
+      {contextMenu && (
+        <CanvasContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          elementId={contextMenu.elementId}
+          onClose={() => setContextMenu(null)}
+          onAddCommentPinAtPos={onDropPinAtPos}
+        />
+      )}
+    </div>
+  );
+};
+
+export default CadCanvas;

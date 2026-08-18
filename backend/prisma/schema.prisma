@@ -1,0 +1,108 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ENGINEER
+  ARCHITECT
+  ADMIN
+}
+
+model User {
+  id             String         @id @default(uuid())
+  email          String         @unique
+  password       String
+  fullName       String
+  role           Role           @default(ENGINEER)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  projects       Project[]
+  comments       Comment[]
+  commentReplies CommentReply[]
+  groupMembers   GroupMember[]
+  chatMessages   ChatMessage[]
+}
+
+model Project {
+  id          String        @id @default(uuid())
+  title       String
+  description String?       @db.Text
+  canvasData  Json?
+  thumbnail   String?       @db.LongText
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isArchived  Boolean       @default(false)
+  isPublic    Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  comments    Comment[]
+  channels    ChatChannel[]
+}
+
+model Comment {
+  id         String         @id @default(uuid())
+  projectId  String
+  project    Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  x          Float
+  y          Float
+  content    String         @db.Text
+  isResolved Boolean        @default(false)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  replies    CommentReply[]
+}
+
+model CommentReply {
+  id        String   @id @default(uuid())
+  commentId String
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ChatChannel {
+  id          String        @id @default(uuid())
+  projectId   String
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  topic       String?
+  isDefault   Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  members     GroupMember[]
+  messages    ChatMessage[]
+}
+
+model GroupMember {
+  id        String      @id @default(uuid())
+  channelId String      @db.VarChar(100)
+  channel   ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId    String      @db.VarChar(100)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String      @default("MEMBER")
+  joinedAt  DateTime    @default(now())
+
+  @@unique([channelId, userId])
+}
+
+model ChatMessage {
+  id          String       @id @default(uuid())
+  channelId   String
+  channel     ChatChannel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  isAi        Boolean      @default(false)
+  content     String       @db.Text
+  attachments Json?
+  createdAt   DateTime     @default(now())
+}

@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@turf/turf": "^7.4.0",
+    "dxf-parser": "^1.1.2"
+  }
+}
