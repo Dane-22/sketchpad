@@ -9,7 +9,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies cleanly
-RUN npm ci
+RUN npm install
 
 # Copy project configuration and sources
 COPY tsconfig*.json ./
