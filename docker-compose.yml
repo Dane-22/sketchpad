@@ -73,6 +73,8 @@ services:
         condition: service_healthy
     networks:
       - eng_network
+    volumes:
+      - canvas_uploads:/app/uploads
 
   # ============================================================================
   # 4. Frontend Web App & Nginx Reverse Proxy Service
@@ -97,6 +99,8 @@ volumes:
   mysql_data:
     driver: local
   redis_data:
+    driver: local
+  canvas_uploads:
     driver: local
 
 networks:

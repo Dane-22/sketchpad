@@ -23,7 +23,7 @@ export const CommentPinLayer: React.FC<CommentPinLayerProps> = ({
   const fontSize = 11 / stageScale;
 
   return (
-    <Layer>
+    <Group>
       {comments.map((comment, index) => {
         const isSelected = activeCommentId === comment.id;
         const isResolved = comment.isResolved;
@@ -144,6 +144,6 @@ export const CommentPinLayer: React.FC<CommentPinLayerProps> = ({
           />
         </Group>
       )}
-    </Layer>
+    </Group>
   );
 };

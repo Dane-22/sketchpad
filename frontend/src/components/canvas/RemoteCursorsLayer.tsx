@@ -8,7 +8,7 @@ interface RemoteCursorsLayerProps {
 
 const RemoteCursorsLayer: React.FC<RemoteCursorsLayerProps> = ({ cursors }) => {
   return (
-    <Layer>
+    <Group>
       {Object.values(cursors).map((cursor) => (
         <Group key={cursor.socketId} x={cursor.x} y={cursor.y}>
           <Path
@@ -29,7 +29,7 @@ const RemoteCursorsLayer: React.FC<RemoteCursorsLayerProps> = ({ cursors }) => {
           />
         </Group>
       ))}
-    </Layer>
+    </Group>
   );
 };
 

@@ -833,60 +833,62 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         <DrawingLayer 
           onOpenContextMenu={(x, y, id) => setContextMenu({ x, y, elementId: id })} 
         />
-        <RemoteCursorsLayer cursors={remoteCursors} />
-        {onSelectComment && (
-          <CommentPinLayer
-            comments={comments}
-            activeCommentId={activeCommentId}
-            onSelectComment={onSelectComment}
-            pendingPinPos={pendingPinPos}
-          />
-        )}
-        <OverlayLayer />
-        
-        {/* Snapping Indicator Layer */}
-        <Layer listening={false}>
-          {snapIndicator && (
-            <>
-              {snapIndicator.type === 'endpoint' && (
-                <Rect 
-                  x={snapIndicator.point.x - 5/stageScale} 
-                  y={snapIndicator.point.y - 5/stageScale} 
-                  width={10/stageScale} 
-                  height={10/stageScale} 
-                  stroke="#00ff00" 
-                  strokeWidth={2/stageScale} 
-                />
-              )}
-              {snapIndicator.type === 'midpoint' && (
-                <RegularPolygon 
-                  x={snapIndicator.point.x} 
-                  y={snapIndicator.point.y} 
-                  sides={3} 
-                  radius={7/stageScale} 
-                  stroke="#00ff00" 
-                  strokeWidth={2/stageScale} 
-                />
-              )}
-              {snapIndicator.type === 'center' && (
-                <Circle 
-                  x={snapIndicator.point.x} 
-                  y={snapIndicator.point.y} 
-                  radius={7/stageScale} 
-                  stroke="#00ff00" 
-                  strokeWidth={2/stageScale} 
-                />
-              )}
-              {snapIndicator.type === 'grid' && (
-                <Circle 
-                  x={snapIndicator.point.x} 
-                  y={snapIndicator.point.y} 
-                  radius={2/stageScale} 
-                  fill="#00ff00" 
-                />
-              )}
-            </>
+        <Layer id="ui-layer">
+          <RemoteCursorsLayer cursors={remoteCursors} />
+          {onSelectComment && (
+            <CommentPinLayer
+              comments={comments}
+              activeCommentId={activeCommentId}
+              onSelectComment={onSelectComment}
+              pendingPinPos={pendingPinPos}
+            />
           )}
+          <OverlayLayer />
+          
+          {/* Snapping Indicator Layer */}
+          <Group listening={false}>
+            {snapIndicator && (
+              <>
+                {snapIndicator.type === 'endpoint' && (
+                  <Rect 
+                    x={snapIndicator.point.x - 5/stageScale} 
+                    y={snapIndicator.point.y - 5/stageScale} 
+                    width={10/stageScale} 
+                    height={10/stageScale} 
+                    stroke="#00ff00" 
+                    strokeWidth={2/stageScale} 
+                  />
+                )}
+                {snapIndicator.type === 'midpoint' && (
+                  <RegularPolygon 
+                    x={snapIndicator.point.x} 
+                    y={snapIndicator.point.y} 
+                    sides={3} 
+                    radius={7/stageScale} 
+                    stroke="#00ff00" 
+                    strokeWidth={2/stageScale} 
+                  />
+                )}
+                {snapIndicator.type === 'center' && (
+                  <Circle 
+                    x={snapIndicator.point.x} 
+                    y={snapIndicator.point.y} 
+                    radius={7/stageScale} 
+                    stroke="#00ff00" 
+                    strokeWidth={2/stageScale} 
+                  />
+                )}
+                {snapIndicator.type === 'grid' && (
+                  <Circle 
+                    x={snapIndicator.point.x} 
+                    y={snapIndicator.point.y} 
+                    radius={2/stageScale} 
+                    fill="#00ff00" 
+                  />
+                )}
+              </>
+            )}
+          </Group>
         </Layer>
       </Stage>
       
