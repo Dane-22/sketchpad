@@ -1,4 +1,22 @@
-export type ToolType = 'select' | 'line' | 'freehand' | 'text' | 'dimension' | 'leader' | 'rectangle' | 'circle' | 'arc' | 'polyline' | 'area' | 'symbol' | 'eraser' | 'image';
+export type ToolType = 
+  | 'select' 
+  | 'line' 
+  | 'freehand' 
+  | 'text' 
+  | 'dimension' 
+  | 'leader' 
+  | 'callout'
+  | 'rectangle' 
+  | 'circle' 
+  | 'arc' 
+  | 'polyline' 
+  | 'area' 
+  | 'symbol' 
+  | 'eraser' 
+  | 'image'
+  | 'highlighter'
+  | 'cloud'
+  | 'stamp';
 
 export interface CanvasLayer {
   id: string;
@@ -15,6 +33,7 @@ export interface CanvasElement {
   y: number;
   points?: number[];
   text?: string;
+  fontSize?: number;
   width?: number;
   height?: number;
   radius?: number;
@@ -26,7 +45,7 @@ export interface CanvasElement {
   stroke?: string;
   strokeWidth?: number;
   svgData?: string;
-  src?: string; // Image dataUrl or URL
+  src?: string; // Image URL or asset path
   opacity?: number;
   locked?: boolean;
   name?: string;
@@ -34,6 +53,11 @@ export interface CanvasElement {
   scaleY?: number;
   layerId?: string;
   groupId?: string;
+  topicId?: string; // Linked discussion / comment thread ID
+  parentImageId?: string; // Bound to an underlying image / document sheet
+  stampType?: 'APPROVED' | 'REVISE & RESUBMIT' | 'FOR REVIEW' | 'REJECTED' | 'AS-BUILT' | 'HOLD';
+  stampAuthor?: string;
+  stampDate?: string;
   linkedElements?: {
     elementId: string;
     dimensionPointIndex: number;

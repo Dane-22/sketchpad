@@ -1,4 +1,5 @@
 import * as pdfjsLib from 'pdfjs-dist';
+import axios from 'axios';
 
 // Set up PDF.js worker
 if (typeof window !== 'undefined') {
@@ -8,12 +9,39 @@ if (typeof window !== 'undefined') {
 export interface ConvertedPdfPage {
   pageNumber: number;
   dataUrl: string;
+  blob: Blob;
   width: number;
   height: number;
 }
 
 /**
- * Converts a PDF File into an array of high-resolution image data URLs (one per page).
+ * Converts a canvas element into a compressed Blob (WebP or JPEG).
+ */
+export function canvasToBlob(canvas: HTMLCanvasElement, mimeType = 'image/webp', quality = 0.9): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob);
+        } else {
+          // Fallback to image/png if webp is not supported
+          canvas.toBlob(
+            (fallbackBlob) => {
+              if (fallbackBlob) resolve(fallbackBlob);
+              else reject(new Error('Canvas to Blob conversion failed'));
+            },
+            'image/png'
+          );
+        }
+      },
+      mimeType,
+      quality
+    );
+  });
+}
+
+/**
+ * Converts a PDF File into an array of high-resolution image data URLs and Blobs (one per page).
  */
 export async function convertPdfToImages(file: File, renderScale = 2.0): Promise<ConvertedPdfPage[]> {
   const arrayBuffer = await file.arrayBuffer();
@@ -44,10 +72,13 @@ export async function convertPdfToImages(file: File, renderScale = 2.0): Promise
 
     await page.render(renderContext).promise;
 
-    const dataUrl = canvas.toDataURL('image/png', 0.95);
+    const blob = await canvasToBlob(canvas, 'image/webp', 0.9);
+    const dataUrl = canvas.toDataURL('image/webp', 0.85);
+
     pages.push({
       pageNumber: pageNum,
       dataUrl,
+      blob,
       width: viewport.width / renderScale, // Normalized original width
       height: viewport.height / renderScale, // Normalized original height
     });
@@ -57,9 +88,9 @@ export async function convertPdfToImages(file: File, renderScale = 2.0): Promise
 }
 
 /**
- * Loads an image File (PNG, JPG, SVG, WebP) and returns its DataURL along with natural dimensions.
+ * Loads an image File (PNG, JPG, SVG, WebP) and returns its DataURL along with natural dimensions and File.
  */
-export function convertImageFileToDataUrl(file: File): Promise<{ dataUrl: string; width: number; height: number }> {
+export function convertImageFileToDataUrl(file: File): Promise<{ dataUrl: string; file: File; width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -68,6 +99,7 @@ export function convertImageFileToDataUrl(file: File): Promise<{ dataUrl: string
       img.onload = () => {
         resolve({
           dataUrl,
+          file,
           width: img.naturalWidth || img.width,
           height: img.naturalHeight || img.height
         });
@@ -79,3 +111,26 @@ export function convertImageFileToDataUrl(file: File): Promise<{ dataUrl: string
     reader.readAsDataURL(file);
   });
 }
+
+/**
+ * Uploads a canvas image or PDF page blob to the backend server and returns the lightweight URL.
+ */
+export async function uploadCanvasAssetToServer(fileOrBlob: File | Blob, filename: string = 'canvas-asset.webp'): Promise<string> {
+  const formData = new FormData();
+  formData.append('file', fileOrBlob, filename);
+
+  const token = localStorage.getItem('token');
+  const response = await axios.post('/api/v1/uploads/canvas-asset', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+  });
+
+  if (response.data && response.data.url) {
+    return response.data.url;
+  }
+
+  throw new Error('Server did not return a valid asset URL');
+}
+

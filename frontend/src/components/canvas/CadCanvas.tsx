@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Stage, Layer, Rect, RegularPolygon, Circle } from 'react-konva';
 import Konva from 'konva';
 import GridLayer from './GridLayer';
@@ -14,8 +14,10 @@ import { calculateSnapPoint, SnapType } from '../../features/planner/utils/snapp
 import { CommentPinLayer } from './CommentPinLayer';
 import { CanvasComment } from '../../types/comment';
 import { CanvasContextMenu } from './overlays/CanvasContextMenu';
+import { socket } from '../../features/planner/utils/socket';
 
 interface CadCanvasProps {
+  projectId?: string;
   comments?: CanvasComment[];
   activeCommentId?: string | null;
   onSelectComment?: (commentId: string) => void;
@@ -25,6 +27,7 @@ interface CadCanvasProps {
 }
 
 const CadCanvas: React.FC<CadCanvasProps> = ({
+  projectId,
   comments = [],
   activeCommentId = null,
   onSelectComment,
@@ -38,7 +41,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
   const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
   
   const { 
-    elements, setElements, 
+    elements, setElements, addElement,
     activeTool, setActiveTool,
     stageScale, setStageScale, 
     stagePos, setStagePos,
@@ -46,10 +49,11 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
     textColor, updateElement, removeElement, theme,
     commitHistory, activeLayerId, stageRotation, stagePitch,
     groups, setGroups, setSelectedElementIds,
-    pendingCoordinate, setPendingCoordinate
+    pendingCoordinate, setPendingCoordinate,
+    activeTopicId, activeStampType, highlighterColor, highlighterWidth
   } = useCanvasState();
 
-  const { remoteCursors, emitCursorMove } = useCollaboration();
+  const { remoteCursors, emitCursorMove } = useCollaboration(projectId);
 
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentLineId, setCurrentLineId] = useState<string | null>(null);
@@ -60,6 +64,62 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; elementId: string } | null>(null);
   const [snapIndicator, setSnapIndicator] = useState<{ point: {x: number, y: number}, type: SnapType } | null>(null);
+
+  const finishPolyline = useCallback(() => {
+    if (!activePolylineId) return;
+    const currentElements = useCanvasState.getState().elements;
+    const targetEl = currentElements.find(el => el.id === activePolylineId);
+    
+    if (targetEl && targetEl.points && targetEl.points.length >= 4) {
+      // Clean up points: if the last 2 points are identical or duplicate click from double-click, trim them
+      let finalPoints = [...targetEl.points];
+      while (finalPoints.length >= 6) {
+        const len = finalPoints.length;
+        if (Math.hypot(finalPoints[len - 2] - finalPoints[len - 4], finalPoints[len - 1] - finalPoints[len - 3]) < 5) {
+          finalPoints = finalPoints.slice(0, len - 2);
+        } else {
+          break;
+        }
+      }
+
+      if (finalPoints.length >= 4) {
+        const finishedEl: CanvasElement = { ...targetEl, points: finalPoints };
+        setElements(prev => prev.map(e => e.id === activePolylineId ? finishedEl : e), true, false, false);
+        socket.emit('element-added', { projectId, element: finishedEl });
+      } else {
+        removeElement(activePolylineId, false, false, projectId);
+      }
+    } else if (targetEl) {
+      removeElement(activePolylineId, false, false, projectId);
+    }
+    
+    setActivePolylineId(null);
+    setActiveTool('select');
+  }, [activePolylineId, projectId, setElements, removeElement, setActiveTool]);
+
+  // Keyboard shortcut listener to finalize polyline on Enter, Space, or Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+        return;
+      }
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
+        if (activePolylineId) {
+          e.preventDefault();
+          finishPolyline();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activePolylineId, finishPolyline]);
+
+  // Auto-finish polyline if the tool is switched on the Ribbon or toolbar
+  useEffect(() => {
+    if (activePolylineId && activeTool !== 'polyline' && activeTool !== 'leader' && activeTool !== 'area') {
+      finishPolyline();
+    }
+  }, [activeTool, activePolylineId, finishPolyline]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -174,10 +234,112 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         scaleY: 1 / stageScale,
         layerId: activeLayerId
       };
-      setElements([...elements, newElement], true);
+      addElement(newElement, true, false, projectId);
       setEditingTextId(id);
       setActiveTool('select');
       return;
+    }
+    
+    if (activeTool === 'stamp') {
+      const id = Date.now().toString();
+      const newElement: CanvasElement = {
+        id,
+        type: 'stamp',
+        x: pos.x,
+        y: pos.y,
+        width: 200 / stageScale,
+        height: 80 / stageScale,
+        stampType: activeStampType,
+        stampAuthor: localStorage.getItem('user_name') || 'Engineer',
+        stampDate: new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }),
+        strokeWidth: 2 / stageScale,
+        layerId: activeLayerId,
+        topicId: activeTopicId || undefined
+      };
+      addElement(newElement, true, false, projectId);
+      setActiveTool('select');
+      return;
+    }
+
+    if (activeTool === 'highlighter') {
+      setIsDrawing(true);
+      const id = Date.now().toString();
+      setCurrentLineId(id);
+      
+      const newElement: CanvasElement = {
+        id,
+        type: 'highlighter',
+        x: pos.x,
+        y: pos.y,
+        points: [pos.x, pos.y],
+        stroke: highlighterColor || '#ffe600',
+        strokeWidth: (highlighterWidth || 16) / stageScale,
+        opacity: 0.45,
+        layerId: activeLayerId,
+        topicId: activeTopicId || undefined
+      };
+      setElements([...elements, newElement], false, false, false);
+      return;
+    }
+
+    if (activeTool === 'cloud') {
+      setIsDrawing(true);
+      const id = Date.now().toString();
+      setCurrentLineId(id);
+      
+      const newElement: CanvasElement = {
+        id,
+        type: 'cloud',
+        x: pos.x,
+        y: pos.y,
+        points: [pos.x, pos.y],
+        stroke: '#ff9900',
+        strokeWidth: 2.5 / stageScale,
+        layerId: activeLayerId,
+        topicId: activeTopicId || undefined
+      };
+      setElements([...elements, newElement], false, false, false);
+      return;
+    }
+
+    if (activeTool === 'callout') {
+      if (activeDimensionId && dimensionStep === 1) {
+        // Step 2: Set text note position and finish callout
+        const currentElements = useCanvasState.getState().elements;
+        const calloutEl = currentElements.find(e => e.id === activeDimensionId);
+        if (calloutEl && calloutEl.points) {
+          const finishedEl: CanvasElement = {
+            ...calloutEl,
+            points: [calloutEl.points[0], calloutEl.points[1], pos.x, pos.y],
+            text: 'Review Required',
+          };
+          setElements(prev => prev.map(e => e.id === activeDimensionId ? finishedEl : e), true, false, false);
+          socket.emit('element-added', { projectId, element: finishedEl });
+        }
+        commitHistory();
+        setActiveDimensionId(null);
+        setDimensionStep(0);
+        setActiveTool('select');
+        return;
+      } else {
+        // Step 1: Set arrow start tip
+        const id = Date.now().toString();
+        setActiveDimensionId(id);
+        setDimensionStep(1);
+        const newElement: CanvasElement = {
+          id,
+          type: 'callout',
+          x: pos.x,
+          y: pos.y,
+          points: [pos.x, pos.y, pos.x, pos.y],
+          stroke: '#00e5ff',
+          strokeWidth: 2 / stageScale,
+          layerId: activeLayerId,
+          topicId: activeTopicId || undefined
+        };
+        setElements([...elements, newElement], false, false, false);
+        return;
+      }
     }
     
     if (activeTool === 'line' || activeTool === 'freehand' || activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'arc') {
@@ -199,10 +361,12 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         angle: activeTool === 'arc' ? 0 : undefined,
         stroke: textColor || '#00ffcc', 
         strokeWidth: 2 / stageScale,
-        layerId: activeLayerId
+        layerId: activeLayerId,
+        topicId: activeTopicId || undefined
       };
       
-      setElements([...elements, newElement], true);
+      // Store locally during drawing without broadcasting full canvas
+      setElements([...elements, newElement], false, false, false);
     } else if (activeTool === 'polyline' || activeTool === 'leader' || activeTool === 'area') {
       if (activePolylineId) {
         setElements(prev => prev.map(el => {
@@ -219,7 +383,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
             return { ...el, points: [...(el.points || []), pos.x, pos.y] };
           }
           return el;
-        }), false);
+        }), false, false, false);
       } else {
         const id = Date.now().toString();
         setActivePolylineId(id);
@@ -231,9 +395,10 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
           points: [pos.x, pos.y, pos.x, pos.y],
           stroke: textColor || '#00ffcc',
           strokeWidth: 2 / stageScale,
-          layerId: activeLayerId
+          layerId: activeLayerId,
+          topicId: activeTopicId || undefined
         };
-        setElements([...elements, newElement], true);
+        setElements([...elements, newElement], false, false, false);
       }
     } else if (activeTool === 'dimension') {
       if (dimensionStep === 0) {
@@ -251,13 +416,14 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
           stroke: textColor || '#00ffcc',
           strokeWidth: 1 / stageScale,
           layerId: activeLayerId,
+          topicId: activeTopicId || undefined,
           linkedElements: snapResult.elementId ? [{
             elementId: snapResult.elementId,
             dimensionPointIndex: 0,
             nodeIndex: snapResult.nodeIndex
           }] : []
         };
-        setElements([...elements, newElement], true);
+        setElements([...elements, newElement], false, false, false);
       } else if (dimensionStep === 1) {
         // Step 1: Set P2
         setDimensionStep(2);
@@ -275,10 +441,15 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
               };
             }
             return el;
-          }), false);
+          }), false, false, false);
         }
       } else if (dimensionStep === 2) {
         // Step 2: Set Offset and finish
+        const currentElements = useCanvasState.getState().elements;
+        const finishedEl = currentElements.find(e => e.id === activeDimensionId);
+        if (finishedEl) {
+          socket.emit('element-added', { projectId, element: finishedEl });
+        }
         commitHistory();
         setActiveDimensionId(null);
         setDimensionStep(0);
@@ -302,7 +473,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
           const el = elements.find(e => e.id === currentLineId);
           if (el) {
             lastPos = { x: el.x, y: el.y };
-            if ((activeTool === 'line' || activeTool === 'freehand') && el.points) {
+            if ((activeTool === 'line' || activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'cloud') && el.points) {
                lastPos = { x: el.points[0], y: el.points[1] };
             }
           }
@@ -322,7 +493,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         // Actually, let's keep absolute Y as positive = down for consistency with grid, unless we invert it entirely.
       }
 
-      if (activeTool === 'line' || activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'arc' || activeTool === 'freehand') {
+      if (activeTool === 'line' || activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'arc' || activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'cloud') {
         if (!isDrawing) {
           setIsDrawing(true);
           const id = Date.now().toString();
@@ -333,49 +504,21 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
             type: activeTool,
             x: pos.x,
             y: pos.y,
-            points: (activeTool === 'line' || activeTool === 'freehand') ? [pos.x, pos.y] : undefined,
+            points: (activeTool === 'line' || activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'cloud') ? [pos.x, pos.y] : undefined,
             width: activeTool === 'rectangle' ? 0 : undefined,
             height: activeTool === 'rectangle' ? 0 : undefined,
             radius: activeTool === 'circle' ? 0 : undefined,
-            innerRadius: activeTool === 'arc' ? 0 : undefined,
-            outerRadius: activeTool === 'arc' ? 0 : undefined,
-            angle: activeTool === 'arc' ? 0 : undefined,
             stroke: textColor || '#00ffcc', 
-            strokeWidth: 2 / stageScale,
-            layerId: activeLayerId
+            strokeWidth: activeTool === 'highlighter' ? (highlighterWidth / stageScale) : (2 / stageScale),
+            opacity: activeTool === 'highlighter' ? 0.45 : 1,
+            layerId: activeLayerId,
+            topicId: activeTopicId || undefined
           };
-          setElements([...elements, newElement], true);
+          setElements([...elements, newElement], false);
         } else {
-          setElements((prev) => 
-            prev.map((el) => {
-              if (el.id === currentLineId) {
-                if (activeTool === 'line') {
-                  let drawX = pos.x;
-                  let drawY = pos.y;
-                  if (orthoMode && el.points) {
-                    const startX = el.points[0];
-                    const startY = el.points[1];
-                    if (Math.abs(drawX - startX) > Math.abs(drawY - startY)) {
-                      drawY = startY;
-                    } else {
-                      drawX = startX;
-                    }
-                  }
-                  return { ...el, points: [el.points![0], el.points![1], drawX, drawY] };
-                } else if (activeTool === 'rectangle') {
-                  return { ...el, width: pos.x - el.x, height: pos.y - el.y };
-                } else if (activeTool === 'circle') {
-                  const radius = Math.sqrt(Math.pow(pos.x - el.x, 2) + Math.pow(pos.y - el.y, 2));
-                  return { ...el, radius };
-                }
-              }
-              return el;
-            })
-          , false);
-          
-          commitHistory();
           setIsDrawing(false);
           setCurrentLineId(null);
+          commitHistory();
         }
       } else if (activeTool === 'polyline' || activeTool === 'leader' || activeTool === 'area') {
         if (activePolylineId) {
@@ -405,7 +548,8 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
             points: [pos.x, pos.y, pos.x, pos.y],
             stroke: textColor || '#00ffcc',
             strokeWidth: 2 / stageScale,
-            layerId: activeLayerId
+            layerId: activeLayerId,
+            topicId: activeTopicId || undefined
           };
           setElements([...elements, newElement], true);
         }
@@ -413,7 +557,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
       
       setPendingCoordinate(null);
     }
-  }, [pendingCoordinate, activeTool, elements, isDrawing, currentLineId, activePolylineId, orthoMode, textColor, stageScale, activeLayerId, setElements, commitHistory, setPendingCoordinate]);
+  }, [pendingCoordinate, activeTool, elements, isDrawing, currentLineId, activePolylineId, orthoMode, textColor, stageScale, activeLayerId, activeTopicId, highlighterWidth, setElements, commitHistory, setPendingCoordinate]);
 
   const handleMouseMove = () => {
     if (!stageRef.current) return;
@@ -438,6 +582,18 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
     });
     
     emitCursorMove(pos.x, pos.y);
+
+    if (activeTool === 'callout' && activeDimensionId && dimensionStep === 1) {
+      setElements((prev) => 
+        prev.map((el) => {
+          if (el.id === activeDimensionId && el.points) {
+            return { ...el, points: [el.points[0], el.points[1], pos.x, pos.y] };
+          }
+          return el;
+        }), false, false, false
+      );
+      return;
+    }
 
     if (activeTool === 'polyline' || activeTool === 'leader' || activeTool === 'area') {
       if (activePolylineId) {
@@ -464,7 +620,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
             }
             return el;
           })
-        , false);
+        , false, false, false);
       }
       return;
     }
@@ -502,7 +658,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
             return { ...el, points: newPoints };
           }
           return el;
-        }), false
+        }), false, false, false
       );
       return;
     }
@@ -525,7 +681,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
               }
             }
             return { ...el, points: [el.points![0], el.points![1], drawX, drawY] };
-          } else if (activeTool === 'freehand') {
+          } else if (activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'cloud') {
             return { ...el, points: [...(el.points || []), pos.x, pos.y] };
           } else if (activeTool === 'rectangle') {
             return { ...el, width: pos.x - el.x, height: pos.y - el.y };
@@ -540,7 +696,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         }
         return el;
       })
-    , false);
+    , false, false, false);
   };
 
   const handleMouseUp = (e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -549,7 +705,12 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
       return;
     }
     if (activeTool === 'polyline' || activeTool === 'leader' || activeTool === 'area' || activeTool === 'dimension') return;
-    if (isDrawing) {
+    if (isDrawing && currentLineId) {
+      const currentElements = useCanvasState.getState().elements;
+      const finishedEl = currentElements.find(el => el.id === currentLineId);
+      if (finishedEl) {
+        socket.emit('element-added', { projectId, element: finishedEl });
+      }
       commitHistory();
     }
     setIsDrawing(false);
@@ -563,11 +724,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         setEditingTextId(id);
       }
     } else if (activeTool === 'polyline' || activeTool === 'leader' || activeTool === 'area') {
-      if (activePolylineId) {
-        commitHistory();
-        setActivePolylineId(null);
-        setActiveTool('select');
-      }
+      finishPolyline();
     }
   };
 
@@ -592,7 +749,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
           scaleX: 1 / stageScale,
           scaleY: 1 / stageScale,
         };
-        setElements([...elements, newElement]);
+        addElement(newElement, true, false, projectId);
         setActiveTool('select');
       } else if (data.type === 'custom_symbol') {
         const symbolElements: CanvasElement[] = data.elements;
@@ -623,7 +780,8 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
           };
         });
         
-        setElements([...elements, ...newElements]);
+        setElements([...elements, ...newElements], true, false, false);
+        newElements.forEach(el => socket.emit('element-added', { projectId, element: el }));
         setGroups([...groups, { id: groupId, elementIds: newElements.map(e => e.id) }]);
         setActiveTool('select');
         setSelectedElementIds(newElements.map(e => e.id));

@@ -24,6 +24,7 @@
     "multer": "^2.2.0",
     "redis": "^6.2.0",
     "socket.io": "^4.8.3",
+    "web-push": "^3.6.7",
     "zod": "^3.22.4"
   },
   "devDependencies": {
@@ -37,6 +38,7 @@
     "@types/multer": "^2.2.0",
     "@types/node": "^20.10.6",
     "@types/supertest": "^7.2.1",
+    "@types/web-push": "^3.6.4",
     "jest": "^30.4.2",
     "jest-mock-extended": "^4.0.1",
     "nodemon": "^3.0.2",

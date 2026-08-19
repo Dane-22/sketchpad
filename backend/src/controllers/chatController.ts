@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../config/db';
+import { notificationService, NotificationType } from '../services/notificationService';
 
 export const chatController = {
   // 1. Get all channels for a project (creates default #general and #engi-ai if none exist)
@@ -219,6 +220,55 @@ export const chatController = {
         }
       });
 
+      // Fetch channel members to notify
+      const channelWithMembers = await (prisma as any).chatChannel.findUnique({
+        where: { id: channelId },
+        include: {
+          members: {
+            select: { userId: true }
+          }
+        }
+      });
+
+      const recipientUserIds = (channelWithMembers?.members || [])
+        .map((m: { userId: string }) => m.userId)
+        .filter((uid: string) => uid !== user.id);
+
+      // Check if canvas location is attached
+      const hasCanvasLocation = Array.isArray(attachments) && attachments.some((a: any) => a.type === 'canvas-location');
+      const locationAttachment = hasCanvasLocation ? attachments.find((a: any) => a.type === 'canvas-location') : null;
+
+      // Determine notification type & title
+      let notifType: NotificationType = 'CHAT_MESSAGE';
+      let notifTitle = `💬 #${channel.name} · ${user.fullName || 'Engineer'}`;
+
+      if (content.toLowerCase().includes('@all') || content.toLowerCase().includes(`@${user.fullName?.toLowerCase()}`)) {
+        notifType = 'CHAT_MENTION';
+        notifTitle = `📣 Mentioned in #${channel.name}`;
+      } else if (hasCanvasLocation) {
+        notifType = 'CHAT_CANVAS_LOCATION';
+        notifTitle = `📍 CAD Coordinates Shared in #${channel.name}`;
+      }
+
+      // Dispatch to channel members asynchronously
+      if (recipientUserIds.length > 0) {
+        notificationService.dispatchMany(recipientUserIds, {
+          projectId: channel.projectId,
+          type: notifType,
+          title: notifTitle,
+          body: content.trim(),
+          data: {
+            channelId,
+            channelName: channel.name,
+            messageId: savedUserMessage.id,
+            senderName: user.fullName || 'Engineer',
+            x: locationAttachment?.x,
+            y: locationAttachment?.y,
+            url: `/app/${channel.projectId}?channelId=${channelId}${locationAttachment ? `&x=${locationAttachment.x}&y=${locationAttachment.y}` : ''}`
+          }
+        }).catch(err => console.error('Failed to dispatch chat notifications:', err));
+      }
+
       const isAiTriggered =
         channel.name === 'engi-ai' ||
         content.toLowerCase().includes('@ai') ||
@@ -237,6 +287,21 @@ export const chatController = {
             content: aiResponseText,
           }
         });
+
+        // Notify user(s) when EngiAI completes response
+        const aiRecipients = Array.from(new Set([user.id, ...recipientUserIds]));
+        notificationService.dispatchMany(aiRecipients, {
+          projectId: channel.projectId,
+          type: 'AI_COPILOT_REPLY',
+          title: `🤖 EngiAI Reply in #${channel.name}`,
+          body: aiResponseText.slice(0, 160) + (aiResponseText.length > 160 ? '...' : ''),
+          data: {
+            channelId,
+            channelName: channel.name,
+            messageId: savedAiMessage.id,
+            url: `/app/${channel.projectId}?channelId=${channelId}`
+          }
+        }).catch(err => console.error('Failed to dispatch AI notifications:', err));
       }
 
       return res.status(201).json({
@@ -284,6 +349,24 @@ export const chatController = {
           }
         }
       });
+
+      const channel = await (prisma as any).chatChannel.findUnique({
+        where: { id: channelId }
+      });
+
+      if (channel) {
+        notificationService.dispatchMany(userIds, {
+          projectId: channel.projectId,
+          type: 'CHAT_GROUP_INVITE',
+          title: `👥 Added to #${channel.name}`,
+          body: `You have been added to group channel #${channel.name}`,
+          data: {
+            channelId,
+            channelName: channel.name,
+            url: `/app/${channel.projectId}?channelId=${channelId}`
+          }
+        }).catch(err => console.error('Failed to notify added members:', err));
+      }
 
       return res.json(updatedMembers);
     } catch (error: any) {

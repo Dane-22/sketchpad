@@ -6,7 +6,7 @@ export const useAutoSave = (
   projectId: string,
   canvasState: CanvasState,
   enabled: boolean = true,
-  delay: number = 400
+  delay: number = 2000
 ) => {
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
@@ -14,6 +14,7 @@ export const useAutoSave = (
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latestStateRef = useRef<CanvasState>(canvasState);
+  const lastSavedJsonRef = useRef<string>('');
   const hasPendingSaveRef = useRef<boolean>(false);
   const isSavingRef = useRef<boolean>(false);
 
@@ -27,12 +28,19 @@ export const useAutoSave = (
       timeoutRef.current = null;
     }
 
+    const currentJson = JSON.stringify(latestStateRef.current);
+    if (currentJson === lastSavedJsonRef.current) {
+      hasPendingSaveRef.current = false;
+      return;
+    }
+
     try {
       isSavingRef.current = true;
       setIsSaving(true);
       setError(null);
       hasPendingSaveRef.current = false;
       await projectService.saveCanvas(projectId, latestStateRef.current);
+      lastSavedJsonRef.current = currentJson;
       setLastSaved(new Date());
     } catch (err: any) {
       setError(err.message || 'Failed to auto-save');
@@ -45,6 +53,11 @@ export const useAutoSave = (
   // Trigger debounced auto-save on state change
   useEffect(() => {
     if (!projectId || !enabled) return;
+
+    const currentJson = JSON.stringify(canvasState);
+    if (currentJson === lastSavedJsonRef.current) {
+      return;
+    }
 
     hasPendingSaveRef.current = true;
 

@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
-import { UploadCloud, X, FileText, Image as ImageIcon, AlertCircle, Loader2, Check, Layers } from 'lucide-react';
+import { UploadCloud, X, FileText, Image as ImageIcon, AlertCircle, Loader2, Check, Layers, Box, Compass } from 'lucide-react';
 import { useCanvasState } from '../../features/planner/hooks/useCanvasState';
 import { useToast } from '../ui/ToastProvider';
-import { convertPdfToImages, convertImageFileToDataUrl, ConvertedPdfPage } from '../../features/planner/utils/pdfConverter';
+import { convertPdfToImages, convertImageFileToDataUrl, ConvertedPdfPage, uploadCanvasAssetToServer } from '../../features/planner/utils/pdfConverter';
+import { generateCadDocumentPreview } from '../../features/planner/utils/cadDocumentPreview';
+import { imageCache } from '../canvas/DrawingLayer';
 import { CanvasElement } from '../../types/canvas';
 
 interface UploadMediaModalProps {
@@ -11,7 +13,7 @@ interface UploadMediaModalProps {
 }
 
 export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onClose }) => {
-  const { elements, setElements, stageWidth, stageHeight, stageScale, stagePos, setStagePos, setStageScale, activeLayerId } = useCanvasState();
+  const { setElements, addElement, stageWidth, stageHeight, stageScale, stagePos, setStagePos, setStageScale, activeLayerId } = useCanvasState();
   const { showToast } = useToast();
 
   const [isDragging, setIsDragging] = useState(false);
@@ -23,8 +25,8 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
   const [selectedPageIdx, setSelectedPageIdx] = useState<number>(0);
   const [activeFileName, setActiveFileName] = useState<string>('');
 
-  // Single Image State
-  const [previewImage, setPreviewImage] = useState<{ dataUrl: string; width: number; height: number } | null>(null);
+  // Single Image / CAD Blueprint State
+  const [previewImage, setPreviewImage] = useState<{ dataUrl: string; file: File; width: number; height: number; blob?: Blob } | null>(null);
 
   // Settings
   const [importMode, setImportMode] = useState<'append' | 'replace'>('append');
@@ -66,8 +68,17 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
       } else if (['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(ext)) {
         const imgData = await convertImageFileToDataUrl(file);
         setPreviewImage(imgData);
+      } else if (['dwg', 'dxf', 'skp', 'skb', 'doc', 'docx'].includes(ext)) {
+        const cadPreview = await generateCadDocumentPreview(file);
+        setPreviewImage({
+          dataUrl: cadPreview.dataUrl,
+          file,
+          width: cadPreview.width,
+          height: cadPreview.height,
+          blob: cadPreview.blob
+        });
       } else {
-        throw new Error('Unsupported format. Please upload an Image (.png, .jpg, .svg) or Document (.pdf).');
+        throw new Error('Unsupported format. Please upload CAD (.dwg, .dxf), SketchUp (.skp), Document (.pdf, .docx), or Image (.png, .jpg).');
       }
     } catch (err: any) {
       console.error(err);
@@ -91,22 +102,41 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
     }
   };
 
-  const handleInsert = () => {
+  const handleInsert = async () => {
     let targetDataUrl = '';
     let origWidth = 800;
     let origHeight = 600;
+    let fileOrBlobToUpload: File | Blob | null = null;
+    let assetName = activeFileName || 'canvas-asset.webp';
 
     if (pdfPages.length > 0) {
       const page = pdfPages[selectedPageIdx];
       targetDataUrl = page.dataUrl;
+      fileOrBlobToUpload = page.blob;
       origWidth = page.width;
       origHeight = page.height;
+      assetName = `${activeFileName}-p${page.pageNumber}.webp`;
     } else if (previewImage) {
       targetDataUrl = previewImage.dataUrl;
+      fileOrBlobToUpload = previewImage.blob || previewImage.file;
       origWidth = previewImage.width;
       origHeight = previewImage.height;
+      assetName = previewImage.file.name;
     } else {
       return;
+    }
+
+    setIsProcessing(true);
+
+    // Upload asset to server for ultra-lightweight canvas state (URL instead of multi-megabyte base64)
+    let finalSrc = targetDataUrl;
+    if (fileOrBlobToUpload) {
+      try {
+        const serverUrl = await uploadCanvasAssetToServer(fileOrBlobToUpload, assetName);
+        finalSrc = serverUrl;
+      } catch (uploadErr) {
+        console.warn('Could not upload canvas asset to server, falling back to local dataUrl:', uploadErr);
+      }
     }
 
     // Determine coordinate & dimensions on canvas
@@ -136,7 +166,7 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
       y: posY,
       width: targetWidth,
       height: targetHeight,
-      src: targetDataUrl,
+      src: finalSrc,
       opacity: 1,
       locked: false,
       layerId: activeLayerId,
@@ -144,21 +174,35 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
       scaleY: 1
     };
 
+    // Pre-cache image so it renders instantly on the Konva canvas
+    if (targetDataUrl) {
+      const cachedImg = new window.Image();
+      cachedImg.src = targetDataUrl;
+      if (finalSrc) {
+        imageCache.set(finalSrc, cachedImg);
+      }
+      imageCache.set(targetDataUrl, cachedImg);
+    }
+
     if (importMode === 'replace') {
-      setElements([newElement], true);
+      setElements([newElement], true, false, true);
       setStageScale(1);
       setStagePos({ x: 50, y: 50 });
     } else {
-      setElements([...elements, newElement], true);
+      addElement(newElement, true, false);
     }
 
-    showToast(
-      pdfPages.length > 0
-        ? `PDF Page ${selectedPageIdx + 1} added to canvas!`
-        : `Image added to canvas!`,
-      'success'
-    );
+    const ext = activeFileName.split('.').pop()?.toLowerCase() || '';
+    const toastMsg = 
+      ext === 'skp' || ext === 'skb' ? 'SketchUp 3D Model sheet added to canvas!' :
+      ext === 'dwg' || ext === 'dxf' ? 'AutoCAD DWG Blueprint sheet added to canvas!' :
+      ext === 'doc' || ext === 'docx' ? 'Specification Document sheet added to canvas!' :
+      pdfPages.length > 0 ? `PDF Page ${selectedPageIdx + 1} added to canvas!` :
+      'Image asset added to canvas!';
 
+    showToast(toastMsg, 'success');
+
+    setIsProcessing(false);
     handleClose();
   };
 
@@ -173,8 +217,8 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
               <UploadCloud size={22} />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-theme-primary leading-none">Upload Image or Document</h2>
-              <p className="text-xs text-theme-muted mt-1">Upload blueprint images or auto-convert PDF documents directly to the canvas</p>
+              <h2 className="text-lg font-bold text-theme-primary leading-none">Upload CAD, 3D Model, or Document</h2>
+              <p className="text-xs text-theme-muted mt-1">Place AutoCAD (.dwg), SketchUp (.skp), PDF, Word, or images directly onto the canvas for collaborative redlining</p>
             </div>
           </div>
           <button 
@@ -203,7 +247,7 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
             >
               <input 
                 type="file" 
-                accept=".pdf,.png,.jpg,.jpeg,.webp,.svg" 
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.svg,.dwg,.dxf,.skp,.skb,.doc,.docx" 
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
                 onChange={handleFileInput}
                 disabled={isProcessing}
@@ -218,14 +262,16 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
               ) : (
                 <>
                   <div className="flex items-center gap-3 mb-3 text-theme-muted">
-                    <ImageIcon size={32} className="text-theme-accent" />
-                    <FileText size={32} className="text-blue-400" />
+                    <Compass size={28} className="text-cyan-400" />
+                    <Box size={28} className="text-red-400" />
+                    <FileText size={28} className="text-blue-400" />
+                    <ImageIcon size={28} className="text-amber-400" />
                   </div>
                   <p className="text-theme-primary text-base font-semibold mb-1">
-                    Drag & drop Image or PDF here
+                    Drag & drop CAD, SketchUp, PDF, Document, or Image here
                   </p>
                   <p className="text-theme-muted text-xs mb-3">
-                    Supports PNG, JPG, WebP, SVG, and PDF documents
+                    Supports AutoCAD (.dwg, .dxf), SketchUp (.skp, .skb), PDF, Word (.docx), and Images (.png, .jpg)
                   </p>
                   <span className="px-3 py-1.5 text-xs rounded-lg bg-theme-hover text-theme-primary border border-theme-border font-medium shadow-sm">
                     Browse Files

@@ -3,7 +3,9 @@ import RibbonTab from './RibbonTab';
 import RibbonPanel from './RibbonPanel';
 import RibbonTool from './RibbonTool';
 import { 
-  Minus, Spline, Circle, PenLine, Square, Eraser, Clock
+  Minus, Spline, Circle, PenLine, Square, Eraser, Clock,
+  Highlighter, Cloud, MessageSquareQuote, Type, Ruler, Stamp,
+  ChevronDown, CheckCircle2
 } from 'lucide-react';
 import { useCanvasState } from '../../features/planner/hooks/useCanvasState';
 import { useToast } from '../ui/ToastProvider';
@@ -11,16 +13,42 @@ import { useToast } from '../ui/ToastProvider';
 const RibbonMenu = () => {
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('Home');
-  const { activeTool, setActiveTool } = useCanvasState();
+  const [isStampDropdownOpen, setIsStampDropdownOpen] = useState(false);
+  const [isHighlighterDropdownOpen, setIsHighlighterDropdownOpen] = useState(false);
+  
+  const { 
+    activeTool, setActiveTool,
+    activeStampType, setActiveStampType,
+    highlighterColor, setHighlighterColor,
+    setTextColor, textColor
+  } = useCanvasState();
 
   const tabs = ['Home', 'Insert', 'Annotate', 'Parametric', 'View', 'Manage', 'Output', 'Collaborate', 'Express Tools'];
 
   const handleTabClick = (tab: string) => {
     setActiveTab(tab);
-    if (tab !== 'Home') {
+    if (tab !== 'Home' && tab !== 'Annotate') {
       showToast(`${tab} tools are coming soon!`);
     }
   };
+
+  const stampOptions: Array<{ type: 'APPROVED' | 'REVISE & RESUBMIT' | 'FOR REVIEW' | 'REJECTED' | 'AS-BUILT' | 'HOLD'; label: string; color: string }> = [
+    { type: 'APPROVED', label: 'APPROVED', color: '#10b981' },
+    { type: 'REVISE & RESUBMIT', label: 'REVISE & RESUBMIT', color: '#f59e0b' },
+    { type: 'FOR REVIEW', label: 'FOR REVIEW', color: '#3b82f6' },
+    { type: 'REJECTED', label: 'REJECTED', color: '#ef4444' },
+    { type: 'AS-BUILT', label: 'AS-BUILT', color: '#06b6d4' },
+    { type: 'HOLD', label: 'HOLD', color: '#8b5cf6' },
+  ];
+
+  const highlighterColors = [
+    { color: '#ffe600', label: 'Fluorescent Yellow' },
+    { color: '#00ffcc', label: 'Neon Cyan' },
+    { color: '#ff3b30', label: 'Redline Red' },
+    { color: '#34c759', label: 'Emerald Green' },
+    { color: '#ff2d55', label: 'Hot Pink' },
+    { color: '#ff9500', label: 'Bright Orange' },
+  ];
 
   return (
     <div className="flex flex-col bg-theme-surface border-b border-theme-border w-full z-40 transition-colors duration-300">
@@ -57,7 +85,7 @@ const RibbonMenu = () => {
                 icon={<Spline size={24} />} 
                 label="Polyline" 
                 isActive={activeTool === 'polyline'} 
-                onClick={() => { setActiveTool('polyline'); showToast("Click points to draw a polyline. Double-click to finish."); }} 
+                onClick={() => { setActiveTool('polyline'); showToast("Click points to draw a polyline. Double-click or press Enter to finish."); }} 
               />
               <RibbonTool 
                 icon={<Circle size={24} />} 
@@ -87,6 +115,141 @@ const RibbonMenu = () => {
                 isActive={activeTool === 'eraser'} 
                 onClick={() => { setActiveTool('eraser'); showToast("Click on an element to delete it."); }} 
               />
+            </RibbonPanel>
+          </RibbonTab>
+        ) : activeTab === 'Annotate' ? (
+          <RibbonTab id="Annotate" isActive={true}>
+            {/* Redline & Markup Tools */}
+            <RibbonPanel label="Markup & Redline">
+              <RibbonTool 
+                icon={<PenLine size={24} className="text-red-400" />} 
+                label="Redline Pen" 
+                isActive={activeTool === 'freehand' && textColor === '#ff3333'} 
+                onClick={() => { 
+                  setTextColor('#ff3333');
+                  setActiveTool('freehand'); 
+                  showToast("Redline Pen active. Draw sketches directly over blueprints."); 
+                }} 
+              />
+              <div className="relative">
+                <RibbonTool 
+                  icon={<Highlighter size={24} style={{ color: highlighterColor }} />} 
+                  label="Highlighter" 
+                  isActive={activeTool === 'highlighter'} 
+                  onClick={() => { 
+                    setActiveTool('highlighter'); 
+                    showToast("Highlighter active. Draw translucent highlights over text & drawings."); 
+                  }} 
+                />
+                <button
+                  onClick={() => setIsHighlighterDropdownOpen(!isHighlighterDropdownOpen)}
+                  className="absolute bottom-1 right-1 p-0.5 rounded hover:bg-white/10 text-theme-muted hover:text-white"
+                  title="Change Highlighter Color"
+                >
+                  <ChevronDown size={12} />
+                </button>
+                {isHighlighterDropdownOpen && (
+                  <div className="absolute left-0 top-full mt-1 bg-theme-surface border border-theme-border shadow-2xl rounded-lg p-2 z-50 flex flex-col gap-1 w-40">
+                    <span className="text-[10px] text-theme-muted font-semibold uppercase px-1">Highlighter Color</span>
+                    {highlighterColors.map(c => (
+                      <button
+                        key={c.color}
+                        onClick={() => {
+                          setHighlighterColor(c.color);
+                          setIsHighlighterDropdownOpen(false);
+                          setActiveTool('highlighter');
+                        }}
+                        className="flex items-center gap-2 px-2 py-1 text-xs text-left rounded hover:bg-white/10 text-theme-primary"
+                      >
+                        <span className="w-3.5 h-3.5 rounded-full border border-black/30" style={{ backgroundColor: c.color }} />
+                        <span>{c.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <RibbonTool 
+                icon={<Cloud size={24} className="text-amber-400" />} 
+                label="Rev Cloud" 
+                isActive={activeTool === 'cloud'} 
+                onClick={() => { 
+                  setActiveTool('cloud'); 
+                  showToast("Revision Cloud active. Drag or click points to create a cloud boundary."); 
+                }} 
+              />
+            </RibbonPanel>
+
+            {/* Callouts & Text Panel */}
+            <RibbonPanel label="Callouts & Notes">
+              <RibbonTool 
+                icon={<MessageSquareQuote size={24} className="text-cyan-400" />} 
+                label="Callout" 
+                isActive={activeTool === 'callout'} 
+                onClick={() => { 
+                  setActiveTool('callout'); 
+                  showToast("Callout active. Click arrow point then text position."); 
+                }} 
+              />
+              <RibbonTool 
+                icon={<Type size={24} />} 
+                label="Text Note" 
+                isActive={activeTool === 'text'} 
+                onClick={() => { 
+                  setActiveTool('text'); 
+                  showToast("Click canvas to place text note."); 
+                }} 
+              />
+              <RibbonTool 
+                icon={<Ruler size={24} />} 
+                label="Dimension" 
+                isActive={activeTool === 'dimension'} 
+                onClick={() => { 
+                  setActiveTool('dimension'); 
+                  showToast("Dimension tool active. Click point 1, point 2, then offset."); 
+                }} 
+              />
+            </RibbonPanel>
+
+            {/* Engineering Review Stamps */}
+            <RibbonPanel label="Review Stamps">
+              <div className="relative">
+                <RibbonTool 
+                  icon={<Stamp size={24} className="text-emerald-400" />} 
+                  label={`Stamp: ${activeStampType.split(' ')[0]}`} 
+                  isActive={activeTool === 'stamp'} 
+                  onClick={() => { 
+                    setActiveTool('stamp'); 
+                    showToast(`Stamp active [${activeStampType}]. Click on document/blueprint to stamp.`); 
+                  }} 
+                />
+                <button
+                  onClick={() => setIsStampDropdownOpen(!isStampDropdownOpen)}
+                  className="absolute bottom-1 right-1 p-0.5 rounded hover:bg-white/10 text-theme-muted hover:text-white"
+                  title="Choose Stamp Type"
+                >
+                  <ChevronDown size={12} />
+                </button>
+                {isStampDropdownOpen && (
+                  <div className="absolute left-0 top-full mt-1 bg-theme-surface border border-theme-border shadow-2xl rounded-lg p-2 z-50 flex flex-col gap-1 w-48">
+                    <span className="text-[10px] text-theme-muted font-semibold uppercase px-1">Select Stamp Type</span>
+                    {stampOptions.map(st => (
+                      <button
+                        key={st.type}
+                        onClick={() => {
+                          setActiveStampType(st.type);
+                          setIsStampDropdownOpen(false);
+                          setActiveTool('stamp');
+                          showToast(`Selected stamp: ${st.label}`);
+                        }}
+                        className={`flex items-center justify-between px-2 py-1.5 text-xs text-left rounded hover:bg-white/10 ${activeStampType === st.type ? 'bg-white/10 font-bold' : ''}`}
+                      >
+                        <span style={{ color: st.color }}>{st.label}</span>
+                        {activeStampType === st.type && <CheckCircle2 size={12} className="text-theme-accent" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </RibbonPanel>
           </RibbonTab>
         ) : (

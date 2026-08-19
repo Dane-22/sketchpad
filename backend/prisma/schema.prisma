@@ -11,22 +11,39 @@ enum Role {
   ENGINEER
   ARCHITECT
   ADMIN
+  SUPER_ADMIN
+}
+
+enum UserStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
 }
 
 model User {
-  id             String         @id @default(uuid())
-  email          String         @unique
-  password       String
-  fullName       String
-  role           Role           @default(ENGINEER)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  projects       Project[]
-  comments       Comment[]
-  commentReplies CommentReply[]
-  groupMembers   GroupMember[]
-  chatMessages   ChatMessage[]
+  id                String             @id @default(uuid())
+  email             String             @unique
+  password          String
+  fullName          String
+  role              Role               @default(ENGINEER)
+  status            UserStatus         @default(PENDING)
+  rejectionReason   String?            @db.Text
+  approvedAt        DateTime?
+  approvedById      String?            @db.VarChar(191)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  projects          Project[]
+  comments          Comment[]
+  commentReplies    CommentReply[]
+  groupMembers      GroupMember[]
+  chatMessages      ChatMessage[]
+  pushSubscriptions PushSubscription[]
+  notifications     Notification[]
+  notificationPref  NotificationPreference?
 
+  @@index([status])
+  @@index([role])
   @@map("user")
 }
 
@@ -118,4 +135,62 @@ model ChatMessage {
   createdAt   DateTime     @default(now())
 
   @@map("chatmessage")
+}
+
+enum NotificationType {
+  AI_ANALYSIS_COMPLETE
+  AI_COPILOT_REPLY
+  AI_PROACTIVE_CAD_ALERT
+  CHAT_MESSAGE
+  CHAT_MENTION
+  CHAT_CANVAS_LOCATION
+  CHAT_GROUP_INVITE
+  COMMENT_PIN_ADDED
+  COMMENT_REPLY_ADDED
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String   @db.VarChar(191)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @db.Text
+  p256dh    String   @db.VarChar(255)
+  auth      String   @db.VarChar(255)
+  userAgent String?  @db.VarChar(255)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("pushsubscription")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @db.VarChar(191)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId String?          @db.VarChar(191)
+  type      NotificationType
+  title     String           @db.VarChar(255)
+  body      String           @db.Text
+  data      Json?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+  @@map("notification")
+}
+
+model NotificationPreference {
+  id                 String   @id @default(uuid())
+  userId             String   @unique @db.VarChar(191)
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chatPushEnabled    Boolean  @default(true)
+  aiPushEnabled      Boolean  @default(true)
+  commentPushEnabled Boolean  @default(true)
+  soundEnabled       Boolean  @default(true)
+  mentionsOnly       Boolean  @default(false)
+  updatedAt          DateTime @updatedAt
+
+  @@map("notificationpreference")
 }

@@ -4,7 +4,9 @@ import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import PlannerWorkspace from './components/layout/PlannerWorkspace';
 import SharedProjectPage from './pages/SharedProjectPage';
+import AdminUsersPage from './pages/AdminUsersPage';
 import { ProtectedRoute } from './components/layout/ProtectedRoute';
+import { AdminRoute } from './components/layout/AdminRoute';
 import { useAuthStore } from './features/auth/store/useAuthStore';
 import { ToastProvider } from './components/ui/ToastProvider';
 
@@ -26,6 +28,22 @@ function App() {
             } 
           />
           <Route 
+            path="/admin" 
+            element={
+              <AdminRoute>
+                <AdminUsersPage />
+              </AdminRoute>
+            } 
+          />
+          <Route 
+            path="/admin/users" 
+            element={
+              <AdminRoute>
+                <AdminUsersPage />
+              </AdminRoute>
+            } 
+          />
+          <Route 
             path="/app/:projectId" 
             element={
               <ProtectedRoute>
@@ -42,3 +60,4 @@ function App() {
 }
 
 export default App;
+

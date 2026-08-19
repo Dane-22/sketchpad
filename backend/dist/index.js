@@ -17,9 +17,15 @@ const convertRoutes_1 = __importDefault(require("./routes/convertRoutes"));
 const commentRoutes_1 = __importDefault(require("./routes/commentRoutes"));
 const aiRoutes_1 = __importDefault(require("./routes/aiRoutes"));
 const chatRoutes_1 = __importDefault(require("./routes/chatRoutes"));
+const notificationRoutes_1 = __importDefault(require("./routes/notificationRoutes"));
+const adminRoutes_1 = __importDefault(require("./routes/adminRoutes"));
 const errorHandler_1 = require("./middlewares/errorHandler");
+const vapid_1 = require("./config/vapid");
+const notificationService_1 = require("./services/notificationService");
 exports.app = (0, express_1.default)();
 const httpServer = (0, http_1.createServer)(exports.app);
+// Initialize Web Push VAPID
+(0, vapid_1.initVapid)();
 // Initialize Socket.io
 const io = new socket_io_1.Server(httpServer, {
     cors: {
@@ -27,10 +33,20 @@ const io = new socket_io_1.Server(httpServer, {
         methods: ['GET', 'POST']
     }
 });
+// Pass socket server instance to notification service
+(0, notificationService_1.setSocketServer)(io);
 io.on('connection', (socket) => {
     console.log(`User connected: ${socket.id}`);
     const globalRoom = 'global-canvas';
     socket.join(globalRoom);
+    // Allow client to join personal user notification room
+    socket.on('identify-user', (userId) => {
+        if (userId) {
+            const userRoom = `user-${userId}`;
+            socket.join(userRoom);
+            console.log(`Socket ${socket.id} joined user room: ${userRoom}`);
+        }
+    });
     // Allow client to join a specific project room
     socket.on('join-project', (projectId) => {
         const room = `project-${projectId}`;
@@ -119,11 +135,13 @@ exports.app.use(express_1.default.urlencoded({ limit: '5gb', extended: true }));
 exports.app.use((0, cookie_parser_1.default)());
 // Routes
 exports.app.use('/api/v1/auth', authRoutes_1.default);
+exports.app.use('/api/v1/admin', adminRoutes_1.default);
+exports.app.use('/api/v1/notifications', notificationRoutes_1.default);
+exports.app.use('/api/v1/ai', aiRoutes_1.default);
 exports.app.use('/api/v1/projects', projectRoutes_1.default);
 exports.app.use('/api/v1', convertRoutes_1.default);
 exports.app.use('/api/v1', commentRoutes_1.default);
 exports.app.use('/api/v1', chatRoutes_1.default);
-exports.app.use('/api/v1/ai', aiRoutes_1.default);
 // Global Error Handler
 exports.app.use(errorHandler_1.errorHandler);
 const PORT = env_1.config.port;

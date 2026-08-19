@@ -3,10 +3,11 @@ import { useAutoSave } from '../../features/planner/hooks/useAutoSave';
 import { useCanvasState } from '../../features/planner/hooks/useCanvasState';
 import { useAuthStore } from '../../features/auth/store/useAuthStore';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Save, Loader2, Check, Upload, Sun, Moon, LogOut, ArrowLeft, Undo2, Redo2, Share2, Download, Image as ImageIcon, MessageSquare } from 'lucide-react';
+import { Save, Loader2, Check, Sun, Moon, LogOut, ArrowLeft, Undo2, Redo2, Share2, Download, Image as ImageIcon, MessageSquare, Shield } from 'lucide-react';
 import RenameProjectModal from './RenameProjectModal';
 import ExportModal from './ExportModal';
 import ShareProjectModal from './ShareProjectModal';
+import { NotificationBellDropdown } from '../notifications/NotificationBellDropdown';
 
 interface TopNavbarProps {
   onOpenUploadModal?: () => void;
@@ -14,6 +15,8 @@ interface TopNavbarProps {
   commentCount?: number;
   isCommentsOpen?: boolean;
   isProjectLoaded?: boolean;
+  onJumpToCanvas?: (x: number, y: number) => void;
+  onOpenChannel?: (channelId: string) => void;
 }
 
 const TopNavbar: React.FC<TopNavbarProps> = ({
@@ -22,14 +25,17 @@ const TopNavbar: React.FC<TopNavbarProps> = ({
   commentCount = 0,
   isCommentsOpen = false,
   isProjectLoaded = true,
+  onJumpToCanvas,
+  onOpenChannel,
 }) => {
   const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const { elements, setIsImportModalOpen, theme, setTheme, undo, redo, historyIndex, history } = useCanvasState();
+  const { elements, theme, setTheme, undo, redo, historyIndex, history } = useCanvasState();
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
   const logout = useAuthStore(state => state.logout);
+  const user = useAuthStore(state => state.user);
   const navigate = useNavigate();
   const { projectId } = useParams<{ projectId: string }>();
   
@@ -45,12 +51,12 @@ const TopNavbar: React.FC<TopNavbarProps> = ({
     projectId || 'draft-project-123',
     canvasState,
     isProjectLoaded,
-    400
+    2000
   );
 
   const handleLogout = () => {
     logout();
-    navigate('/');
+    navigate('/login');
   };
 
   return (
@@ -67,6 +73,24 @@ const TopNavbar: React.FC<TopNavbarProps> = ({
       </div>
       
       <div className="flex items-center gap-3 text-sm text-theme-muted">
+        {/* Super Admin Quick Link */}
+        {(user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN') && (
+          <button
+            onClick={() => navigate('/admin/users')}
+            className="p-2 text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg transition-all hover:scale-105 active:scale-95 border border-purple-500/30 flex items-center gap-1.5 text-xs font-semibold"
+            title="Super Admin User Approvals"
+          >
+            <Shield size={16} />
+            <span className="hidden sm:inline">Approvals</span>
+          </button>
+        )}
+
+        {/* Notification Bell Dropdown */}
+        <NotificationBellDropdown
+          onJumpToCanvas={onJumpToCanvas}
+          onOpenChannel={onOpenChannel}
+        />
+
         <button
           onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
           className="p-2 text-theme-muted hover:text-theme-primary hover:bg-theme-hover rounded-lg transition-all hover:scale-105 active:scale-95"
@@ -94,26 +118,17 @@ const TopNavbar: React.FC<TopNavbarProps> = ({
           </button>
         </div>
 
-        {/* Upload Image/Document Button */}
+        {/* Upload Image/Document/CAD Button */}
         {onOpenUploadModal && (
           <button 
             onClick={onOpenUploadModal}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-cyan-600/20 to-blue-600/20 hover:from-cyan-600/30 hover:to-blue-600/30 border border-cyan-500/30 text-cyan-400 rounded-lg transition-all hover:scale-105 active:scale-95 font-medium shadow-sm"
-            title="Upload Image or Document (.pdf, .png, .jpg)"
+            title="Upload CAD Blueprint, SketchUp 3D Model, PDF, Document, or Image (.dwg, .skp, .pdf, .docx, .png)"
           >
             <ImageIcon size={16} />
             <span>Upload File</span>
           </button>
         )}
-
-        <button 
-          onClick={() => setIsImportModalOpen(true)}
-          className="flex items-center gap-2 px-3 py-1.5 bg-theme-hover hover:bg-white/10 hover:shadow-sm rounded-lg text-theme-primary transition-all hover:scale-105 active:scale-95"
-          title="Import CAD (.dxf) - Ctrl+O"
-        >
-          <Upload size={16} />
-          <span>Import CAD</span>
-        </button>
 
         {/* Discussion / Comments Toggle Button */}
         {onToggleComments && (

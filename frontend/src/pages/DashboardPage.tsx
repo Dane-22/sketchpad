@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../features/auth/store/useAuthStore';
-import { Plus, Clock, LogOut, MoreVertical, Eye, Edit2, Archive, ArchiveRestore, Trash2, CheckCircle2, Folder } from 'lucide-react';
+import { Plus, Clock, LogOut, MoreVertical, Eye, Edit2, Archive, ArchiveRestore, Trash2, CheckCircle2, Folder, Shield } from 'lucide-react';
 import axios from 'axios';
 import ConfirmModal from '../components/layout/ConfirmModal';
+import { NotificationBellDropdown } from '../components/notifications/NotificationBellDropdown';
 
 interface Project {
   id: string;
@@ -115,7 +116,25 @@ export default function DashboardPage() {
             <h1 className="text-3xl font-bold tracking-tight text-white mb-2">Welcome, {user?.fullName?.toUpperCase() || 'ENGINEER'}</h1>
             <p className="text-slate-400 text-sm">Manage your planning projects</p>
           </div>
-          <div className="flex gap-4">
+          <div className="flex items-center gap-3">
+            {(user?.role === 'SUPER_ADMIN' || user?.role === 'ADMIN') && (
+              <button
+                onClick={() => navigate('/admin/users')}
+                className="px-4 py-2.5 bg-gradient-to-r from-purple-600/20 to-indigo-600/20 hover:from-purple-600/30 hover:to-indigo-600/30 border border-purple-500/30 rounded-lg transition-all flex items-center gap-2 text-sm font-semibold text-purple-300 backdrop-blur-md shadow-[0_0_15px_rgba(168,85,247,0.15)]"
+                title="Manage user registrations and roles"
+              >
+                <Shield size={16} className="text-purple-400" />
+                <span>User Approvals</span>
+              </button>
+            )}
+
+            <NotificationBellDropdown
+              onOpenChannel={(channelId) => {
+                if (projects.length > 0) {
+                  navigate(`/app/${projects[0].id}?channelId=${channelId}`);
+                }
+              }}
+            />
             <button 
               onClick={handleLogout}
               className="px-5 py-2.5 bg-white/5 hover:bg-white/10 rounded-lg transition-all flex items-center gap-2 border border-white/10 text-sm font-medium backdrop-blur-md text-slate-300"

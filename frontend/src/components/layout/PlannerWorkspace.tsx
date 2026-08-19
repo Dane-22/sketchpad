@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 
 import TopNavbar from './TopNavbar';
@@ -24,15 +24,21 @@ export default function PlannerWorkspace() {
   useKeyboardShortcuts();
   const { theme, setElements, setStagePos, stageScale } = useCanvasState();
   const { projectId } = useParams<{ projectId: string }>();
+  const [searchParams] = useSearchParams();
   const token = useAuthStore(state => state.token);
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [targetChannelId, setTargetChannelId] = useState<string | null>(null);
 
-  const handleJumpToCanvas = (x: number, y: number) => {
+  const handleJumpToCanvas = useCallback((x: number, y: number) => {
     const newX = -x * stageScale + window.innerWidth / 2;
     const newY = -y * stageScale + window.innerHeight / 2;
     setStagePos({ x: newX, y: newY });
-  };
+  }, [stageScale, setStagePos]);
+
+  const handleOpenChannel = useCallback((channelId: string) => {
+    setTargetChannelId(channelId);
+  }, []);
 
   const {
     comments,
@@ -69,6 +75,56 @@ export default function PlannerWorkspace() {
     }
   }, [projectId, token, setElements]);
 
+  useEffect(() => {
+    // 1. Process URL query parameters for deep linking
+    const paramX = searchParams.get('x');
+    const paramY = searchParams.get('y');
+    const paramChannel = searchParams.get('channelId');
+    const paramComment = searchParams.get('commentId');
+
+    if (paramX !== null && paramY !== null) {
+      const x = parseFloat(paramX);
+      const y = parseFloat(paramY);
+      if (!isNaN(x) && !isNaN(y)) {
+        setTimeout(() => handleJumpToCanvas(x, y), 300);
+      }
+    }
+
+    if (paramChannel) {
+      setTargetChannelId(paramChannel);
+    }
+
+    if (paramComment) {
+      setActiveCommentId(paramComment);
+    }
+
+    // 2. Listen to postMessages from Service Worker (sw.js)
+    const handleSwMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'NOTIFICATION_CLICKED') {
+        const data = event.data.data;
+        if (data?.x !== undefined && data?.y !== undefined) {
+          handleJumpToCanvas(data.x, data.y);
+        }
+        if (data?.channelId) {
+          setTargetChannelId(data.channelId);
+        }
+        if (data?.commentId) {
+          setActiveCommentId(data.commentId);
+        }
+      }
+    };
+
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+      }
+    };
+  }, [searchParams, handleJumpToCanvas, setActiveCommentId]);
+
   const activeComment = comments.find(c => c.id === activeCommentId) || null;
 
   return (
@@ -79,6 +135,8 @@ export default function PlannerWorkspace() {
         commentCount={comments.filter(c => !c.isResolved).length}
         isCommentsOpen={isCommentsSidebarOpen}
         isProjectLoaded={isProjectLoaded}
+        onJumpToCanvas={handleJumpToCanvas}
+        onOpenChannel={handleOpenChannel}
       />
       <RibbonMenu />
       <div className="flex-1 relative flex flex-col overflow-hidden">
@@ -87,6 +145,7 @@ export default function PlannerWorkspace() {
         <div className="flex-1 relative flex overflow-hidden">
           <main className="flex-1 relative overflow-hidden">
             <CadCanvas 
+              projectId={projectId}
               comments={comments}
               activeCommentId={activeCommentId}
               onSelectComment={(id) => {
@@ -139,6 +198,7 @@ export default function PlannerWorkspace() {
         projectId={projectId || 'draft-project-123'} 
         comments={comments} 
         onJumpToCanvas={handleJumpToCanvas}
+        targetChannelId={targetChannelId}
       />
 
       {/* Modals */}

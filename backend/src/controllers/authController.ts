@@ -24,6 +24,23 @@ export const authController = {
       console.error('Login error:', error);
       if (error.message === 'Invalid email or password') {
         res.status(401).json({ error: error.message });
+      } else if (error.message === 'ACCOUNT_PENDING') {
+        res.status(403).json({
+          error: 'Your account is pending review by a Super Admin. You will be able to log in once approved.',
+          status: 'PENDING',
+        });
+      } else if (error.message && error.message.startsWith('ACCOUNT_REJECTED')) {
+        const reason = error.message.replace('ACCOUNT_REJECTED', '').replace(/^:\s*/, '');
+        res.status(403).json({
+          error: 'Your registration was not approved by the administrator.',
+          status: 'REJECTED',
+          reason: reason || 'Application declined by Super Admin',
+        });
+      } else if (error.message === 'ACCOUNT_SUSPENDED') {
+        res.status(403).json({
+          error: 'Your account has been suspended. Please contact your administrator.',
+          status: 'SUSPENDED',
+        });
       } else {
         res.status(500).json({ error: error.message || 'Failed to login' });
       }

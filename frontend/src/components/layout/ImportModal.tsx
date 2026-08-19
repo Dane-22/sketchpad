@@ -14,8 +14,8 @@ const ImportModal = () => {
   const processFile = async (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase();
     
-    if (ext !== 'dwg' && ext !== 'skb' && ext !== 'dxf') {
-      setError('Please upload a valid AutoCAD (.dwg/.dxf) or SketchUp (.skb) file.');
+    if (ext !== 'dwg' && ext !== 'skb' && ext !== 'skp' && ext !== 'dxf') {
+      setError('Please upload a valid AutoCAD (.dwg/.dxf) or SketchUp (.skp/.skb) file.');
       return;
     }
 
@@ -191,7 +191,7 @@ const ImportModal = () => {
           >
             <input 
               type="file" 
-              accept=".dxf,.dwg,.skb" 
+              accept=".dxf,.dwg,.skp,.skb" 
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
               onChange={handleFileInput}
               disabled={isProcessing}
@@ -200,7 +200,7 @@ const ImportModal = () => {
             <File size={48} className={`mb-4 ${isDragging ? 'text-theme-accent' : 'text-theme-muted'}`} />
             
             <p className="text-theme-primary text-lg font-medium mb-1">
-              Drag & Drop your .dxf file here
+              Drag & Drop your AutoCAD (.dwg/.dxf) or SketchUp (.skp) file here
             </p>
             <p className="text-theme-muted text-sm">
               or click to browse from your computer

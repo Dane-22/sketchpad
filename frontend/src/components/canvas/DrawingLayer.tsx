@@ -3,11 +3,12 @@ import { Layer, Line, Rect, Text, Circle, Arc, Path, Transformer, Arrow, Group, 
 import Konva from 'konva';
 import { useCanvasState } from '../../features/planner/hooks/useCanvasState';
 import { calculateLineCenterAndAngle, calculateDistance, formatDistance, calculatePolygonArea, formatArea, calculateCentroid } from '../../features/planner/utils/geometryMath';
+import { generateCloudSvgPath } from '../../features/planner/utils/annotationMath';
 import { CanvasElement } from '../../types/canvas';
 
-const imageCache = new Map<string, HTMLImageElement>();
+export const imageCache = new Map<string, HTMLImageElement>();
 
-const KonvaImageElement = ({ el, props }: { el: CanvasElement; props: any }) => {
+const KonvaImageElement = ({ el, props, activeTool }: { el: CanvasElement; props: any; activeTool: string }) => {
   const [imageObj, setImageObj] = useState<HTMLImageElement | null>(() => {
     return el.src ? imageCache.get(el.src) || null : null;
   });
@@ -20,11 +21,26 @@ const KonvaImageElement = ({ el, props }: { el: CanvasElement; props: any }) => 
     }
 
     const img = new window.Image();
-    img.src = el.src;
+    if (!el.src.startsWith('data:')) {
+      img.crossOrigin = 'anonymous';
+    }
     img.onload = () => {
       imageCache.set(el.src!, img);
       setImageObj(img);
     };
+    img.onerror = (e) => {
+      console.warn('Image load failed for src:', el.src, e);
+      // If relative url failed, try loading without crossOrigin
+      if (img.crossOrigin) {
+        const fallbackImg = new window.Image();
+        fallbackImg.onload = () => {
+          imageCache.set(el.src!, fallbackImg);
+          setImageObj(fallbackImg);
+        };
+        fallbackImg.src = el.src!;
+      }
+    };
+    img.src = el.src;
   }, [el.src]);
 
   if (!imageObj) return null;
@@ -42,6 +58,7 @@ const KonvaImageElement = ({ el, props }: { el: CanvasElement; props: any }) => 
       scaleY={el.scaleY}
       rotation={el.rotation}
       perfectDrawEnabled={false}
+      listening={activeTool === 'select' || activeTool === 'eraser'}
       {...props}
     />
   );
@@ -383,9 +400,163 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu }) => {
               {...restProps}
             />
           );
+        } else if (el.type === 'highlighter') {
+          const { stroke, opacity, ...restProps } = props;
+          return (
+            <Line
+              key={el.id}
+              points={el.points || []}
+              stroke={el.stroke || '#ffe600'}
+              strokeWidth={el.strokeWidth || 16}
+              opacity={el.opacity !== undefined ? el.opacity : 0.45}
+              lineCap="round"
+              lineJoin="round"
+              tension={0.3}
+              hitStrokeWidth={16}
+              {...restProps}
+            />
+          );
+        } else if (el.type === 'cloud') {
+          const cloudPath = generateCloudSvgPath(el.points || []);
+          return (
+            <Group key={el.id} {...props}>
+              <Path
+                data={cloudPath}
+                stroke={props.stroke || '#ff9900'}
+                strokeWidth={el.strokeWidth || 2.5}
+                fill="transparent"
+                lineCap="round"
+                lineJoin="round"
+                hitStrokeWidth={12}
+              />
+            </Group>
+          );
+        } else if (el.type === 'callout') {
+          const p = el.points || [0, 0, 50, 50];
+          const tipX = p[0];
+          const tipY = p[1];
+          const textX = p[2] !== undefined ? p[2] : p[0] + 50;
+          const textY = p[3] !== undefined ? p[3] : p[1] + 50;
+          const noteText = el.text || 'Review Required';
+          const textWidth = Math.max(120, noteText.length * 8 + 24);
+
+          return (
+            <Group key={el.id} {...props}>
+              <Arrow
+                points={[textX, textY, tipX, tipY]}
+                stroke={props.stroke || '#00e5ff'}
+                fill={props.stroke || '#00e5ff'}
+                strokeWidth={el.strokeWidth || 2}
+                pointerLength={8}
+                pointerWidth={8}
+                hitStrokeWidth={10}
+              />
+              <Group x={textX} y={textY - 14}>
+                <Rect
+                  x={0}
+                  y={0}
+                  width={textWidth}
+                  height={26}
+                  fill={theme === 'light' ? 'rgba(255,255,255,0.92)' : 'rgba(15,23,42,0.92)'}
+                  stroke={props.stroke || '#00e5ff'}
+                  strokeWidth={1}
+                  cornerRadius={4}
+                  shadowBlur={6}
+                  shadowColor="rgba(0,0,0,0.3)"
+                />
+                <Text
+                  x={8}
+                  y={6}
+                  text={noteText}
+                  fontSize={12}
+                  fontStyle="bold"
+                  fill={theme === 'light' ? '#0f172a' : '#f8fafc'}
+                  width={textWidth - 16}
+                />
+              </Group>
+            </Group>
+          );
+        } else if (el.type === 'stamp') {
+          const stampType = el.stampType || 'APPROVED';
+          const stampColor = 
+            stampType === 'APPROVED' ? '#10b981' :
+            stampType === 'REVISE & RESUBMIT' ? '#f59e0b' :
+            stampType === 'FOR REVIEW' ? '#3b82f6' :
+            stampType === 'REJECTED' ? '#ef4444' :
+            stampType === 'AS-BUILT' ? '#06b6d4' : '#8b5cf6';
+          
+          const w = el.width || 180;
+          const h = el.height || 75;
+          const author = el.stampAuthor || 'Engineer';
+          const date = el.stampDate || new Date().toLocaleDateString();
+
+          return (
+            <Group key={el.id} x={el.x} y={el.y} rotation={el.rotation || 0} scaleX={el.scaleX} scaleY={el.scaleY} {...props}>
+              {/* Outer Double Border */}
+              <Rect
+                x={0}
+                y={0}
+                width={w}
+                height={h}
+                stroke={stampColor}
+                strokeWidth={3}
+                cornerRadius={6}
+                fill={theme === 'light' ? 'rgba(255,255,255,0.9)' : 'rgba(15,23,42,0.9)'}
+                shadowBlur={8}
+                shadowColor={stampColor + '40'}
+              />
+              <Rect
+                x={4}
+                y={4}
+                width={w - 8}
+                height={h - 8}
+                stroke={stampColor}
+                strokeWidth={1}
+                cornerRadius={4}
+              />
+              {/* Title Header Badge */}
+              <Text
+                x={6}
+                y={8}
+                text={stampType}
+                fontSize={13}
+                fontStyle="bold"
+                align="center"
+                width={w - 12}
+                fill={stampColor}
+                letterSpacing={1.1}
+              />
+              {/* Divider */}
+              <Line
+                points={[8, 30, w - 8, 30]}
+                stroke={stampColor}
+                strokeWidth={1}
+                dash={[4, 2]}
+              />
+              {/* Metadata */}
+              <Text
+                x={10}
+                y={36}
+                text={`BY: ${author}`}
+                fontSize={10}
+                fontStyle="bold"
+                fill={theme === 'light' ? '#334155' : '#cbd5e1'}
+                width={w - 20}
+              />
+              <Text
+                x={10}
+                y={52}
+                text={`DATE: ${date}`}
+                fontSize={10}
+                fontStyle="bold"
+                fill={theme === 'light' ? '#64748b' : '#94a3b8'}
+                width={w - 20}
+              />
+            </Group>
+          );
         } else if (el.type === 'image') {
           return (
-            <KonvaImageElement key={el.id} el={el} props={props} />
+            <KonvaImageElement key={el.id} el={el} props={props} activeTool={activeTool} />
           );
         }
         return null;

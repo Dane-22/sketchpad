@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { MessageSquare, X, Plus, CheckCircle2, MessageCircle, MapPin, Search } from 'lucide-react';
+import { MessageSquare, X, Plus, CheckCircle2, MessageCircle, MapPin, Search, PenLine, Highlighter } from 'lucide-react';
 import { CanvasComment } from '../../types/comment';
 import { useCanvasState } from '../../features/planner/hooks/useCanvasState';
+import { useToast } from '../ui/ToastProvider';
 
 interface CommentsSidebarProps {
   isOpen: boolean;
@@ -22,7 +23,8 @@ export const CommentsSidebar: React.FC<CommentsSidebarProps> = ({
   onStartAddComment,
   isAddingComment,
 }) => {
-  const { stageWidth, stageHeight, stageScale, setStagePos } = useCanvasState();
+  const { stageWidth, stageHeight, stageScale, setStagePos, elements, setActiveTopicId, setActiveTool, setTextColor } = useCanvasState();
+  const { showToast } = useToast();
   const [filter, setFilter] = useState<'all' | 'active' | 'resolved'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -50,6 +52,7 @@ export const CommentsSidebar: React.FC<CommentsSidebarProps> = ({
     const targetY = -(comment.y * stageScale) + stageHeight / 2;
     setStagePos({ x: targetX, y: targetY });
     onSelectComment(comment.id);
+    setActiveTopicId(comment.id);
   };
 
   return (
@@ -152,6 +155,7 @@ export const CommentsSidebar: React.FC<CommentsSidebarProps> = ({
             const isSelected = activeCommentId === comment.id;
             const originalIndex = comments.findIndex((c) => c.id === comment.id) + 1;
             const replyCount = comment.replies?.length || 0;
+            const linkedMarkups = elements.filter(el => el.topicId === comment.id);
 
             return (
               <div
@@ -192,13 +196,48 @@ export const CommentsSidebar: React.FC<CommentsSidebarProps> = ({
                     <MapPin size={10} />
                     {Math.round(comment.x)}, {Math.round(comment.y)}
                   </span>
-                  {replyCount > 0 && (
-                    <span className="flex items-center gap-1 text-theme-accent font-medium">
-                      <MessageCircle size={10} />
-                      {replyCount} repl{replyCount > 1 ? 'ies' : 'y'}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {linkedMarkups.length > 0 && (
+                      <span className="text-emerald-400 font-semibold flex items-center gap-1">
+                        <PenLine size={10} /> {linkedMarkups.length} markup{linkedMarkups.length > 1 ? 's' : ''}
+                      </span>
+                    )}
+                    {replyCount > 0 && (
+                      <span className="flex items-center gap-1 text-theme-accent font-medium">
+                        <MessageCircle size={10} />
+                        {replyCount} repl{replyCount > 1 ? 'ies' : 'y'}
+                      </span>
+                    )}
+                  </div>
                 </div>
+
+                {isSelected && (
+                  <div className="mt-2 pt-2 border-t border-slate-700/60 flex items-center justify-between gap-1.5">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveTopicId(comment.id);
+                        setTextColor('#ff3333');
+                        setActiveTool('freehand');
+                        showToast(`Redline Pen active for Topic #${originalIndex}`);
+                      }}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 text-[10px] font-semibold border border-red-500/30 transition-colors"
+                    >
+                      <PenLine size={11} /> Redline
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveTopicId(comment.id);
+                        setActiveTool('highlighter');
+                        showToast(`Highlighter active for Topic #${originalIndex}`);
+                      }}
+                      className="flex-1 flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-[10px] font-semibold border border-amber-500/30 transition-colors"
+                    >
+                      <Highlighter size={11} /> Highlight
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })

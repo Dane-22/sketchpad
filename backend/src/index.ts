@@ -2,27 +2,42 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
+import path from 'path';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import { config } from './config/env';
 import authRoutes from './routes/authRoutes';
 import projectRoutes from './routes/projectRoutes';
 import convertRoutes from './routes/convertRoutes';
+import uploadRoutes from './routes/uploadRoutes';
 import commentRoutes from './routes/commentRoutes';
 import aiRoutes from './routes/aiRoutes';
 import chatRoutes from './routes/chatRoutes';
+import notificationRoutes from './routes/notificationRoutes';
+import adminRoutes from './routes/adminRoutes';
 import { errorHandler } from './middlewares/errorHandler';
+import { initVapid } from './config/vapid';
+import { setSocketServer } from './services/notificationService';
 
 export const app = express();
 const httpServer = createServer(app);
 
-// Initialize Socket.io
+// Initialize Web Push VAPID
+initVapid();
+
+// Initialize Socket.io with high-performance configuration
 const io = new Server(httpServer, {
   cors: {
     origin: '*', // Adjust this for production
     methods: ['GET', 'POST']
-  }
+  },
+  maxHttpBufferSize: 1e7, // 10MB buffer safety
+  pingTimeout: 30000,
+  pingInterval: 10000,
 });
+
+// Pass socket server instance to notification service
+setSocketServer(io);
 
 io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
@@ -30,11 +45,30 @@ io.on('connection', (socket) => {
   const globalRoom = 'global-canvas';
   socket.join(globalRoom);
 
+  // Allow client to join personal user notification room
+  socket.on('identify-user', (userId: string) => {
+    if (userId) {
+      const userRoom = `user-${userId}`;
+      socket.join(userRoom);
+      console.log(`Socket ${socket.id} joined user room: ${userRoom}`);
+    }
+  });
+
   // Allow client to join a specific project room
   socket.on('join-project', (projectId: string) => {
-    const room = `project-${projectId}`;
-    socket.join(room);
-    console.log(`Socket ${socket.id} joined ${room}`);
+    if (projectId) {
+      const room = `project-${projectId}`;
+      socket.join(room);
+      console.log(`Socket ${socket.id} joined ${room}`);
+    }
+  });
+
+  socket.on('leave-project', (projectId: string) => {
+    if (projectId) {
+      const room = `project-${projectId}`;
+      socket.leave(room);
+      console.log(`Socket ${socket.id} left ${room}`);
+    }
   });
 
   // Channel rooms for messenger
@@ -67,26 +101,61 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Handle entire elements array sync (for initial sync or bulk changes)
-  socket.on('elements-changed', (data) => {
-    socket.to(globalRoom).emit('elements-changed', data);
+  // Handle entire elements array sync (scoped by project when available)
+  socket.on('elements-changed', (data: any) => {
+    const elements = Array.isArray(data) ? data : data?.elements;
+    const projectId = !Array.isArray(data) ? data?.projectId : null;
+
+    if (projectId) {
+      socket.to(`project-${projectId}`).emit('elements-changed', elements);
+    } else {
+      socket.to(globalRoom).emit('elements-changed', elements);
+    }
   });
 
-  // Handle individual element changes
-  socket.on('element-added', (data) => {
-    socket.to(globalRoom).emit('element-added', data);
+  // Handle individual element added delta
+  socket.on('element-added', (data: any) => {
+    const element = data?.element || data;
+    const projectId = data?.projectId;
+
+    if (projectId) {
+      socket.to(`project-${projectId}`).emit('element-added', element);
+    } else {
+      socket.to(globalRoom).emit('element-added', element);
+    }
   });
   
-  socket.on('element-updated', (data) => {
-    socket.to(globalRoom).emit('element-updated', data);
+  // Handle individual element updated delta
+  socket.on('element-updated', (data: any) => {
+    const projectId = data?.projectId;
+
+    if (projectId) {
+      socket.to(`project-${projectId}`).emit('element-updated', data);
+    } else {
+      socket.to(globalRoom).emit('element-updated', data);
+    }
   });
 
-  socket.on('element-removed', (data) => {
-    socket.to(globalRoom).emit('element-removed', data);
+  // Handle individual element removed delta
+  socket.on('element-removed', (data: any) => {
+    const id = typeof data === 'string' ? data : data?.id;
+    const projectId = typeof data === 'object' ? data?.projectId : null;
+
+    if (projectId) {
+      socket.to(`project-${projectId}`).emit('element-removed', id);
+    } else {
+      socket.to(globalRoom).emit('element-removed', id);
+    }
   });
 
-  socket.on('cursor-moved', (data) => {
-    socket.to(globalRoom).emit('cursor-moved', { ...data, socketId: socket.id });
+  // Handle cursor movements (scoped by project)
+  socket.on('cursor-moved', (data: any) => {
+    const payload = { ...data, socketId: socket.id };
+    if (data?.projectId) {
+      socket.to(`project-${data.projectId}`).emit('cursor-moved', payload);
+    } else {
+      socket.to(globalRoom).emit('cursor-moved', payload);
+    }
   });
 
   // Real-time Comments and Discussion events
@@ -129,17 +198,27 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 app.use(cors());
-app.use(express.json({ limit: '5gb' }));
-app.use(express.urlencoded({ limit: '5gb', extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(cookieParser());
+
+// Static File Serving for Uploads (e.g. /uploads/canvas/img_123.webp)
+const uploadsDirectory = path.join(__dirname, '..', 'uploads');
+app.use('/uploads', express.static(uploadsDirectory, {
+  maxAge: '7d',
+  immutable: true,
+}));
 
 // Routes
 app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/admin', adminRoutes);
+app.use('/api/v1/notifications', notificationRoutes);
+app.use('/api/v1/ai', aiRoutes);
 app.use('/api/v1/projects', projectRoutes);
+app.use('/api/v1/uploads', uploadRoutes);
 app.use('/api/v1', convertRoutes);
 app.use('/api/v1', commentRoutes);
 app.use('/api/v1', chatRoutes);
-app.use('/api/v1/ai', aiRoutes);
 
 
 // Global Error Handler

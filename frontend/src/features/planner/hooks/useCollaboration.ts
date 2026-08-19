@@ -11,16 +11,30 @@ export interface RemoteCursor {
   color?: string;
 }
 
-export const useCollaboration = () => {
+export const useCollaboration = (projectId?: string) => {
   const [remoteCursors, setRemoteCursors] = useState<Record<string, RemoteCursor>>({});
-  const { setElements, updateElement, removeElement } = useCanvasState();
+  const { setElements, addElement, updateElement, removeElement, setActiveProjectId } = useCanvasState();
   const lastEmitRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (projectId) {
+      setActiveProjectId(projectId);
+    }
+  }, [projectId, setActiveProjectId]);
 
   useEffect(() => {
     socket.connect();
 
+    if (projectId) {
+      socket.emit('join-project', projectId);
+    }
+
     socket.on('elements-changed', (elements) => {
-      setElements(elements, false, true);
+      setElements(elements, false, true, false);
+    });
+
+    socket.on('element-added', (element) => {
+      addElement(element, false, true);
     });
 
     socket.on('element-updated', ({ id, updates }) => {
@@ -47,22 +61,27 @@ export const useCollaboration = () => {
     });
 
     return () => {
+      if (projectId) {
+        socket.emit('leave-project', projectId);
+      }
       socket.off('elements-changed');
+      socket.off('element-added');
       socket.off('element-updated');
       socket.off('element-removed');
       socket.off('cursor-moved');
       socket.off('user-disconnected');
       socket.disconnect();
     };
-  }, [setElements, updateElement, removeElement]);
+  }, [projectId, setElements, addElement, updateElement, removeElement]);
 
   const emitCursorMove = useCallback((x: number, y: number) => {
     const now = performance.now();
     if (now - lastEmitRef.current > 40) {
       lastEmitRef.current = now;
-      socket.emit('cursor-moved', { x, y });
+      socket.emit('cursor-moved', { projectId, x, y });
     }
-  }, []);
+  }, [projectId]);
 
   return { remoteCursors, emitCursorMove };
 };
+

@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.chatController = void 0;
 const db_1 = require("../config/db");
+const notificationService_1 = require("../services/notificationService");
 exports.chatController = {
     // 1. Get all channels for a project (creates default #general and #engi-ai if none exist)
     getProjectChannels: async (req, res) => {
@@ -201,6 +202,50 @@ exports.chatController = {
                     }
                 }
             });
+            // Fetch channel members to notify
+            const channelWithMembers = await db_1.prisma.chatChannel.findUnique({
+                where: { id: channelId },
+                include: {
+                    members: {
+                        select: { userId: true }
+                    }
+                }
+            });
+            const recipientUserIds = (channelWithMembers?.members || [])
+                .map((m) => m.userId)
+                .filter((uid) => uid !== user.id);
+            // Check if canvas location is attached
+            const hasCanvasLocation = Array.isArray(attachments) && attachments.some((a) => a.type === 'canvas-location');
+            const locationAttachment = hasCanvasLocation ? attachments.find((a) => a.type === 'canvas-location') : null;
+            // Determine notification type & title
+            let notifType = 'CHAT_MESSAGE';
+            let notifTitle = `💬 #${channel.name} · ${user.fullName || 'Engineer'}`;
+            if (content.toLowerCase().includes('@all') || content.toLowerCase().includes(`@${user.fullName?.toLowerCase()}`)) {
+                notifType = 'CHAT_MENTION';
+                notifTitle = `📣 Mentioned in #${channel.name}`;
+            }
+            else if (hasCanvasLocation) {
+                notifType = 'CHAT_CANVAS_LOCATION';
+                notifTitle = `📍 CAD Coordinates Shared in #${channel.name}`;
+            }
+            // Dispatch to channel members asynchronously
+            if (recipientUserIds.length > 0) {
+                notificationService_1.notificationService.dispatchMany(recipientUserIds, {
+                    projectId: channel.projectId,
+                    type: notifType,
+                    title: notifTitle,
+                    body: content.trim(),
+                    data: {
+                        channelId,
+                        channelName: channel.name,
+                        messageId: savedUserMessage.id,
+                        senderName: user.fullName || 'Engineer',
+                        x: locationAttachment?.x,
+                        y: locationAttachment?.y,
+                        url: `/app/${channel.projectId}?channelId=${channelId}${locationAttachment ? `&x=${locationAttachment.x}&y=${locationAttachment.y}` : ''}`
+                    }
+                }).catch(err => console.error('Failed to dispatch chat notifications:', err));
+            }
             const isAiTriggered = channel.name === 'engi-ai' ||
                 content.toLowerCase().includes('@ai') ||
                 content.toLowerCase().includes('@engiai');
@@ -215,6 +260,20 @@ exports.chatController = {
                         content: aiResponseText,
                     }
                 });
+                // Notify user(s) when EngiAI completes response
+                const aiRecipients = Array.from(new Set([user.id, ...recipientUserIds]));
+                notificationService_1.notificationService.dispatchMany(aiRecipients, {
+                    projectId: channel.projectId,
+                    type: 'AI_COPILOT_REPLY',
+                    title: `🤖 EngiAI Reply in #${channel.name}`,
+                    body: aiResponseText.slice(0, 160) + (aiResponseText.length > 160 ? '...' : ''),
+                    data: {
+                        channelId,
+                        channelName: channel.name,
+                        messageId: savedAiMessage.id,
+                        url: `/app/${channel.projectId}?channelId=${channelId}`
+                    }
+                }).catch(err => console.error('Failed to dispatch AI notifications:', err));
             }
             return res.status(201).json({
                 userMessage: savedUserMessage,
@@ -258,6 +317,22 @@ exports.chatController = {
                     }
                 }
             });
+            const channel = await db_1.prisma.chatChannel.findUnique({
+                where: { id: channelId }
+            });
+            if (channel) {
+                notificationService_1.notificationService.dispatchMany(userIds, {
+                    projectId: channel.projectId,
+                    type: 'CHAT_GROUP_INVITE',
+                    title: `👥 Added to #${channel.name}`,
+                    body: `You have been added to group channel #${channel.name}`,
+                    data: {
+                        channelId,
+                        channelName: channel.name,
+                        url: `/app/${channel.projectId}?channelId=${channelId}`
+                    }
+                }).catch(err => console.error('Failed to notify added members:', err));
+            }
             return res.json(updatedMembers);
         }
         catch (error) {

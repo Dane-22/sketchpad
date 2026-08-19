@@ -26,12 +26,14 @@ interface ProjectMessengerWidgetProps {
   projectId: string;
   comments: CanvasComment[];
   onJumpToCanvas?: (x: number, y: number) => void;
+  targetChannelId?: string | null;
 }
 
 export const ProjectMessengerWidget: React.FC<ProjectMessengerWidgetProps> = ({
   projectId,
   comments,
   onJumpToCanvas,
+  targetChannelId,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -57,6 +59,15 @@ export const ProjectMessengerWidget: React.FC<ProjectMessengerWidgetProps> = ({
     createChannel,
     addMembersToChannel,
   } = useProjectMessenger(projectId);
+
+  // Sync external targetChannelId from notification clicks
+  useEffect(() => {
+    if (targetChannelId) {
+      setActiveChannelId(targetChannelId);
+      setIsOpen(true);
+      setIsMinimized(false);
+    }
+  }, [targetChannelId, setActiveChannelId]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });

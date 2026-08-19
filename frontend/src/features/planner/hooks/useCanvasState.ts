@@ -31,12 +31,23 @@ interface CanvasStateStore {
   textColor: string;
   unitMode: 'metric' | 'imperial';
   pendingCoordinate: { x: number; y: number; isRelative: boolean } | null;
+  activeProjectId: string | null;
+  setActiveProjectId: (id: string | null) => void;
+  activeTopicId: string | null;
+  setActiveTopicId: (id: string | null) => void;
+  activeStampType: 'APPROVED' | 'REVISE & RESUBMIT' | 'FOR REVIEW' | 'REJECTED' | 'AS-BUILT' | 'HOLD';
+  setActiveStampType: (type: 'APPROVED' | 'REVISE & RESUBMIT' | 'FOR REVIEW' | 'REJECTED' | 'AS-BUILT' | 'HOLD') => void;
+  highlighterColor: string;
+  setHighlighterColor: (color: string) => void;
+  highlighterWidth: number;
+  setHighlighterWidth: (w: number) => void;
   
-  setElements: (elements: CanvasElement[] | ((prev: CanvasElement[]) => CanvasElement[]), commit?: boolean, isRemote?: boolean) => void;
+  setElements: (elements: CanvasElement[] | ((prev: CanvasElement[]) => CanvasElement[]), commit?: boolean, isRemote?: boolean, broadcast?: boolean, projectId?: string) => void;
+  addElement: (element: CanvasElement, commit?: boolean, isRemote?: boolean, projectId?: string) => void;
   undo: () => void;
   redo: () => void;
-  removeElement: (id: string, commit?: boolean, isRemote?: boolean) => void;
-  updateElement: (id: string, updates: Partial<CanvasElement>, commit?: boolean, isRemote?: boolean) => void;
+  removeElement: (id: string, commit?: boolean, isRemote?: boolean, projectId?: string) => void;
+  updateElement: (id: string, updates: Partial<CanvasElement>, commit?: boolean, isRemote?: boolean, projectId?: string) => void;
   commitHistory: () => void;
   addLayer: (name: string) => void;
   updateLayer: (id: string, updates: Partial<CanvasLayer>) => void;
@@ -57,10 +68,10 @@ interface CanvasStateStore {
   setIsImportModalOpen: (isOpen: boolean) => void;
   setStageDimensions: (width: number, height: number) => void;
   
-  removeElements: (ids: string[], commit?: boolean, isRemote?: boolean) => void;
+  removeElements: (ids: string[], commit?: boolean, isRemote?: boolean, projectId?: string) => void;
   sendToBack: (id: string) => void;
   bringToFront: (id: string) => void;
-  duplicateElement: (id: string) => void;
+  duplicateElement: (id: string, projectId?: string) => void;
   toggleLockElement: (id: string) => void;
   setElementOpacity: (id: string, opacity: number) => void;
   rotateElement: (id: string, degrees: number) => void;
@@ -111,12 +122,45 @@ export const useCanvasState = create<CanvasStateStore>()(
       textColor: '#ffffff',
       unitMode: 'metric',
       pendingCoordinate: null,
+      activeProjectId: null,
+      setActiveProjectId: (id) => set({ activeProjectId: id }),
+      activeTopicId: null,
+      setActiveTopicId: (id) => set({ activeTopicId: id }),
+      activeStampType: 'APPROVED',
+      setActiveStampType: (type) => set({ activeStampType: type }),
+      highlighterColor: '#ffe600',
+      setHighlighterColor: (color) => set({ highlighterColor: color }),
+      highlighterWidth: 16,
+      setHighlighterWidth: (w) => set({ highlighterWidth: w }),
       
-      setElements: (elementsOrUpdater, commit = true, isRemote = false) => set((state) => {
+      setElements: (elementsOrUpdater, commit = true, isRemote = false, broadcast = false, projectId?: string) => set((state) => {
         const newElements = typeof elementsOrUpdater === 'function' ? elementsOrUpdater(state.elements) : elementsOrUpdater;
+        const targetProjectId = projectId || state.activeProjectId;
+        
+        if (!isRemote && broadcast) {
+          socket.emit('elements-changed', { projectId: targetProjectId, elements: newElements });
+        }
+        
+        if (commit) {
+          const newHistory = state.history.slice(0, state.historyIndex + 1);
+          newHistory.push(newElements);
+          return {
+            elements: newElements,
+            history: newHistory,
+            historyIndex: newHistory.length - 1
+          };
+        }
+        return { elements: newElements };
+      }),
+      addElement: (element, commit = true, isRemote = false, projectId?: string) => set((state) => {
+        if (state.elements.some(e => e.id === element.id)) {
+          return state;
+        }
+        const targetProjectId = projectId || state.activeProjectId;
+        const newElements = [...state.elements, element];
         
         if (!isRemote) {
-          socket.emit('elements-changed', newElements);
+          socket.emit('element-added', { projectId: targetProjectId, element });
         }
         
         if (commit) {
@@ -156,11 +200,12 @@ export const useCanvasState = create<CanvasStateStore>()(
         }
         return state;
       }),
-      removeElement: (id, commit = true, isRemote = false) => set((state) => {
+      removeElement: (id, commit = true, isRemote = false, projectId?: string) => set((state) => {
+        const targetProjectId = projectId || state.activeProjectId;
         const newElements = state.elements.filter(el => el.id !== id);
         
         if (!isRemote) {
-          socket.emit('element-removed', id);
+          socket.emit('element-removed', { projectId: targetProjectId, id });
         }
         
         if (commit) {
@@ -178,12 +223,13 @@ export const useCanvasState = create<CanvasStateStore>()(
           selectedElementIds: state.selectedElementIds.filter(selId => selId !== id)
         };
       }),
-      removeElements: (ids, commit = true, isRemote = false) => set((state) => {
+      removeElements: (ids, commit = true, isRemote = false, projectId?: string) => set((state) => {
+        const targetProjectId = projectId || state.activeProjectId;
         const idSet = new Set(ids);
         const newElements = state.elements.filter(el => !idSet.has(el.id));
         
         if (!isRemote) {
-          ids.forEach(id => socket.emit('element-removed', id));
+          ids.forEach(id => socket.emit('element-removed', { projectId: targetProjectId, id }));
         }
         
         if (commit) {
@@ -225,7 +271,8 @@ export const useCanvasState = create<CanvasStateStore>()(
           historyIndex: newHistory.length - 1
         };
       }),
-      duplicateElement: (id) => set((state) => {
+      duplicateElement: (id, projectId?: string) => set((state) => {
+        const targetProjectId = projectId || state.activeProjectId;
         const el = state.elements.find(e => e.id === id);
         if (!el) return state;
         const cloned: CanvasElement = {
@@ -238,7 +285,7 @@ export const useCanvasState = create<CanvasStateStore>()(
         const newElements = [...state.elements, cloned];
         const newHistory = state.history.slice(0, state.historyIndex + 1);
         newHistory.push(newElements);
-        socket.emit('element-added', cloned);
+        socket.emit('element-added', { projectId: targetProjectId, element: cloned });
         return {
           elements: newElements,
           history: newHistory,
@@ -247,10 +294,11 @@ export const useCanvasState = create<CanvasStateStore>()(
         };
       }),
       toggleLockElement: (id) => set((state) => {
+        const targetProjectId = state.activeProjectId;
         const newElements = state.elements.map(el => {
           if (el.id === id) {
             const nextLocked = !el.locked;
-            socket.emit('element-updated', { id, updates: { locked: nextLocked } });
+            socket.emit('element-updated', { projectId: targetProjectId, id, updates: { locked: nextLocked } });
             return { ...el, locked: nextLocked };
           }
           return el;
@@ -264,9 +312,10 @@ export const useCanvasState = create<CanvasStateStore>()(
         };
       }),
       setElementOpacity: (id, opacity) => set((state) => {
+        const targetProjectId = state.activeProjectId;
         const newElements = state.elements.map(el => {
           if (el.id === id) {
-            socket.emit('element-updated', { id, updates: { opacity } });
+            socket.emit('element-updated', { projectId: targetProjectId, id, updates: { opacity } });
             return { ...el, opacity };
           }
           return el;
@@ -280,11 +329,12 @@ export const useCanvasState = create<CanvasStateStore>()(
         };
       }),
       rotateElement: (id, degrees) => set((state) => {
+        const targetProjectId = state.activeProjectId;
         const newElements = state.elements.map(el => {
           if (el.id === id) {
             const currentRot = el.rotation || 0;
             const nextRot = (currentRot + degrees + 360) % 360;
-            socket.emit('element-updated', { id, updates: { rotation: nextRot } });
+            socket.emit('element-updated', { projectId: targetProjectId, id, updates: { rotation: nextRot } });
             return { ...el, rotation: nextRot };
           }
           return el;
@@ -297,7 +347,8 @@ export const useCanvasState = create<CanvasStateStore>()(
           historyIndex: newHistory.length - 1
         };
       }),
-      updateElement: (id, updates, commit = true, isRemote = false) => set((state) => {
+      updateElement: (id, updates, commit = true, isRemote = false, projectId?: string) => set((state) => {
+        const targetProjectId = projectId || state.activeProjectId;
         const targetElement = state.elements.find(e => e.id === id);
         const dx = updates.x !== undefined && targetElement ? updates.x - targetElement.x : 0;
         const dy = updates.y !== undefined && targetElement ? updates.y - targetElement.y : 0;
@@ -323,11 +374,11 @@ export const useCanvasState = create<CanvasStateStore>()(
         });
         
         if (!isRemote) {
-          socket.emit('element-updated', { id, updates });
+          socket.emit('element-updated', { projectId: targetProjectId, id, updates });
           // Also emit updates for linked dimensions so multiplayer sees the dimension move
           newElements.forEach(el => {
             if (el.type === 'dimension' && el.linkedElements?.some(link => link.elementId === id)) {
-              socket.emit('element-updated', { id: el.id, updates: { points: el.points } });
+              socket.emit('element-updated', { projectId: targetProjectId, id: el.id, updates: { points: el.points } });
             }
           });
         }
