@@ -83,7 +83,7 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu }) => {
       return;
     }
 
-    if (selectedElementIds.length > 0 && transformerRef.current && layerRef.current) {
+    if (selectedElementIds.length > 0 && transformerRef.current && groupRef.current) {
       // Find all IDs to select, expanding groups
       const allSelectedIds = new Set<string>();
       
