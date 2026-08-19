@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layer, Shape } from 'react-konva';
+import { Group, Shape } from 'react-konva';
 import { useCanvasState } from '../../features/planner/hooks/useCanvasState';
 
 interface GridLayerProps {
@@ -24,7 +24,7 @@ const GridLayer: React.FC<GridLayerProps> = React.memo(({ width, height, scale, 
   const endY = Math.ceil((height - y) / scale / gridSize) * gridSize;
 
   return (
-    <Layer listening={false}>
+    <Group listening={false}>
       <Shape
         sceneFunc={(context, shape) => {
           context.beginPath();
@@ -49,7 +49,7 @@ const GridLayer: React.FC<GridLayerProps> = React.memo(({ width, height, scale, 
         perfectDrawEnabled={false}
         shadowForStrokeEnabled={false}
       />
-    </Layer>
+    </Group>
   );
 });
 

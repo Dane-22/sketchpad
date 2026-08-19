@@ -823,17 +823,18 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
           }
         }}
       >
-        <GridLayer 
-          width={dimensions.width} 
-          height={dimensions.height} 
-          scale={stageScale}
-          x={stagePos.x}
-          y={stagePos.y}
-        />
-        <DrawingLayer 
-          onOpenContextMenu={(x, y, id) => setContextMenu({ x, y, elementId: id })} 
-        />
-        <Layer id="ui-layer">
+        <Layer id="main-layer">
+          <GridLayer 
+            width={dimensions.width} 
+            height={dimensions.height} 
+            scale={stageScale}
+            x={stagePos.x}
+            y={stagePos.y}
+          />
+          <DrawingLayer 
+            onOpenContextMenu={(x, y, id) => setContextMenu({ x, y, elementId: id })} 
+          />
+          <Group id="ui-group">
           <RemoteCursorsLayer cursors={remoteCursors} />
           {onSelectComment && (
             <CommentPinLayer
@@ -888,6 +889,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
                 )}
               </>
             )}
+          </Group>
           </Group>
         </Layer>
       </Stage>

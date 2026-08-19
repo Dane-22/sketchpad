@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Layer, Line, Rect, Text, Circle, Arc, Path, Transformer, Arrow, Group, Image as KonvaImage } from 'react-konva';
+import { Group, Line, Rect, Text, Circle, Arc, Path, Transformer, Arrow, Image as KonvaImage } from 'react-konva';
 import Konva from 'konva';
 import { useCanvasState } from '../../features/planner/hooks/useCanvasState';
 import { calculateLineCenterAndAngle, calculateDistance, formatDistance, calculatePolygonArea, formatArea, calculateCentroid } from '../../features/planner/utils/geometryMath';
@@ -73,7 +73,7 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu }) => {
   const { elements, activeTool, removeElement, selectedElementIds, setSelectedElementIds, toggleElementSelection, updateElement, theme, unitMode } = useCanvasState();
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
-  const layerRef = useRef<Konva.Layer>(null);
+  const groupRef = useRef<Konva.Group>(null);
 
   useEffect(() => {
     if (activeTool !== 'select') {
@@ -96,7 +96,7 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu }) => {
         }
       });
       
-      const nodes = Array.from(allSelectedIds).map(id => layerRef.current?.findOne(`#${id}`)).filter(Boolean) as Konva.Node[];
+      const nodes = Array.from(allSelectedIds).map(id => groupRef.current?.findOne(`#${id}`)).filter(Boolean) as Konva.Node[];
       transformerRef.current.nodes(nodes);
       transformerRef.current.getLayer()?.batchDraw();
     } else if (transformerRef.current) {
@@ -172,7 +172,7 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu }) => {
   };
 
   return (
-    <Layer ref={layerRef}>
+    <Group ref={groupRef}>
       {elements.map((el) => {
         const props = getElementProps(el);
 
@@ -574,7 +574,7 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu }) => {
           }}
         />
       )}
-    </Layer>
+    </Group>
   );
 };
 

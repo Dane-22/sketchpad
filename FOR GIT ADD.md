@@ -40,7 +40,9 @@ git push origin main
 | :--- | :--- | :--- |
 | `NEW` | `backend/src/routes/uploadRoutes.ts` | Dedicated `POST /api/v1/uploads/canvas-asset` endpoint using `multer` to store binary image assets directly in `backend/uploads/canvas/` with 100MB limit. |
 | `NEW` | `backend/src/__tests__/upload.test.ts` | Integration tests for canvas asset uploads (validates multipart upload, 201 status, and static URL format). |
-| `MODIFIED` | `backend/src/controllers/convertController.ts` | Extended conversion router to support `.skp` SketchUp 3D models alongside `.dwg`, `.dxf`, and `.skb`. |
+| `MODIFIED` | `backend/src/controllers/convertController.ts` | Extended conversion router to support `.skp` SketchUp 3D models alongside `.dwg`, `.dxf`, and `.skb`, and added `/extract-preview` logic. |
+| `NEW` | `backend/src/utils/cadThumbnailExtractor.ts` | Binary thumbnail extractor for extracting preview images from AutoCAD (`.dwg`, `.dxf`) and SketchUp (`.skp`, `.skb`) files. |
+| `MODIFIED` | `backend/src/routes/convertRoutes.ts` | Registered POST `/api/v1/convert/extract-preview` endpoint for CAD/SketchUp thumbnail extraction. |
 | `MODIFIED` | `backend/src/index.ts` | Added static serving for `/uploads`, tuned Socket.IO buffer & ping intervals, and scoped canvas socket events to `project-${projectId}` rooms. |
 | `MODIFIED` | `backend/src/__tests__/auth.test.ts` | Updated test expectations for `PENDING` user registration response. |
 
