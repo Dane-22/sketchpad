@@ -1,5 +1,5 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { Stage, Layer, Rect, RegularPolygon, Circle } from 'react-konva';
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import { Stage, Layer, Rect, RegularPolygon, Circle, Group } from 'react-konva';
 import Konva from 'konva';
 import GridLayer from './GridLayer';
 import DrawingLayer from './DrawingLayer';

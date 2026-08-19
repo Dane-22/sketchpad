@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layer, Group, Circle, Text } from 'react-konva';
+import { Group, Circle, Text } from 'react-konva';
 import { CanvasComment } from '../../types/comment';
 import { useCanvasState } from '../../features/planner/hooks/useCanvasState';
 

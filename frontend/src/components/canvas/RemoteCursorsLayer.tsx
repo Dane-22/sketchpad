@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layer, Path, Text, Group } from 'react-konva';
+import { Path, Text, Group } from 'react-konva';
 import { RemoteCursor } from '../../features/planner/hooks/useCollaboration';
 
 interface RemoteCursorsLayerProps {
