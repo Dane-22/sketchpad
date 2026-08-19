@@ -7,153 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id              String     @id @default(uuid())
-  email           String     @unique
-  password        String
-  fullName        String
-  role            Role       @default(ENGINEER)
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-  approvedAt      DateTime?
-  approvedById    String?
-  rejectionReason String?    @db.Text
-  status          UserStatus @default(PENDING)
-  projects        Project[]
-
-  @@index([status])
-  @@index([role])
-  @@map("user")
-}
-
-model Project {
-  id          String   @id @default(uuid())
-  title       String
-  description String?  @db.Text
-  canvasData  Json?
-  thumbnail   String?  @db.LongText
-  userId      String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  isArchived  Boolean  @default(false)
-  isPublic    Boolean  @default(false)
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId], map: "Project_userId_fkey")
-  @@map("project")
-}
-
-model Comment {
-  id         String   @id @default(uuid())
-  projectId  String
-  userId     String
-  x          Float
-  y          Float
-  content    String   @db.Text
-  isResolved Boolean  @default(false)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@index([projectId], map: "comment_projectId_fkey")
-  @@index([userId], map: "comment_userId_fkey")
-  @@map("comment")
-}
-
-model CommentReply {
-  id        String   @id @default(uuid())
-  commentId String
-  userId    String
-  content   String   @db.Text
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([commentId], map: "commentreply_commentId_fkey")
-  @@index([userId], map: "commentreply_userId_fkey")
-  @@map("commentreply")
-}
-
-model ChatChannel {
-  id        String   @id @default(uuid())
-  projectId String
-  name      String
-  topic     String?
-  isDefault Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([projectId], map: "chatchannel_projectId_fkey")
-  @@map("chatchannel")
-}
-
-model GroupMember {
-  id        String   @id @default(uuid())
-  channelId String   @db.VarChar(100)
-  userId    String   @db.VarChar(100)
-  role      String   @default("MEMBER")
-  joinedAt  DateTime @default(now())
-
-  @@unique([channelId, userId])
-  @@index([userId], map: "groupmember_userId_fkey")
-  @@map("groupmember")
-}
-
-model ChatMessage {
-  id          String   @id @default(uuid())
-  channelId   String
-  userId      String?
-  isAi        Boolean  @default(false)
-  content     String   @db.Text
-  attachments Json?
-  createdAt   DateTime @default(now())
-
-  @@index([channelId], map: "chatmessage_channelId_fkey")
-  @@index([userId], map: "chatmessage_userId_fkey")
-  @@map("chatmessage")
-}
-
-model PushSubscription {
-  id        String   @id @default(uuid())
-  userId    String
-  endpoint  String   @db.Text
-  p256dh    String   @db.VarChar(255)
-  auth      String   @db.VarChar(255)
-  userAgent String?  @db.VarChar(255)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([userId])
-  @@map("pushsubscription")
-}
-
-model Notification {
-  id        String           @id @default(uuid())
-  userId    String
-  projectId String?
-  type      NotificationType
-  title     String           @db.VarChar(255)
-  body      String           @db.Text
-  data      Json?
-  isRead    Boolean          @default(false)
-  createdAt DateTime         @default(now())
-
-  @@index([userId, isRead])
-  @@index([userId, createdAt])
-  @@map("notification")
-}
-
-model NotificationPreference {
-  id                 String   @id @default(uuid())
-  userId             String   @unique
-  chatPushEnabled    Boolean  @default(true)
-  aiPushEnabled      Boolean  @default(true)
-  commentPushEnabled Boolean  @default(true)
-  soundEnabled       Boolean  @default(true)
-  mentionsOnly       Boolean  @default(false)
-  updatedAt          DateTime @updatedAt
-
-  @@map("notificationpreference")
-}
-
 enum Role {
   ENGINEER
   ARCHITECT
@@ -168,6 +21,122 @@ enum UserStatus {
   SUSPENDED
 }
 
+model User {
+  id                String             @id @default(uuid())
+  email             String             @unique
+  password          String
+  fullName          String
+  role              Role               @default(ENGINEER)
+  status            UserStatus         @default(PENDING)
+  rejectionReason   String?            @db.Text
+  approvedAt        DateTime?
+  approvedById      String?            @db.VarChar(191)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  projects          Project[]
+  comments          Comment[]
+  commentReplies    CommentReply[]
+  groupMembers      GroupMember[]
+  chatMessages      ChatMessage[]
+  pushSubscriptions PushSubscription[]
+  notifications     Notification[]
+  notificationPref  NotificationPreference?
+
+  @@index([status])
+  @@index([role])
+  @@map("user")
+}
+
+model Project {
+  id          String        @id @default(uuid())
+  title       String
+  description String?       @db.Text
+  canvasData  Json?
+  thumbnail   String?       @db.LongText
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isArchived  Boolean       @default(false)
+  isPublic    Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  comments    Comment[]
+  channels    ChatChannel[]
+
+  @@map("project")
+}
+
+model Comment {
+  id         String         @id @default(uuid())
+  projectId  String
+  project    Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  x          Float
+  y          Float
+  content    String         @db.Text
+  isResolved Boolean        @default(false)
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  replies    CommentReply[]
+
+  @@map("comment")
+}
+
+model CommentReply {
+  id        String   @id @default(uuid())
+  commentId String
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("commentreply")
+}
+
+model ChatChannel {
+  id          String        @id @default(uuid())
+  projectId   String
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  topic       String?
+  isDefault   Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  members     GroupMember[]
+  messages    ChatMessage[]
+
+  @@map("chatchannel")
+}
+
+model GroupMember {
+  id        String      @id @default(uuid())
+  channelId String      @db.VarChar(100)
+  channel   ChatChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId    String      @db.VarChar(100)
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String      @default("MEMBER")
+  joinedAt  DateTime    @default(now())
+
+  @@unique([channelId, userId])
+  @@map("groupmember")
+}
+
+model ChatMessage {
+  id          String       @id @default(uuid())
+  channelId   String
+  channel     ChatChannel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  isAi        Boolean      @default(false)
+  content     String       @db.Text
+  attachments Json?
+  createdAt   DateTime     @default(now())
+
+  @@map("chatmessage")
+}
+
 enum NotificationType {
   AI_ANALYSIS_COMPLETE
   AI_COPILOT_REPLY
@@ -178,4 +147,50 @@ enum NotificationType {
   CHAT_GROUP_INVITE
   COMMENT_PIN_ADDED
   COMMENT_REPLY_ADDED
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid())
+  userId    String   @db.VarChar(191)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @db.Text
+  p256dh    String   @db.VarChar(255)
+  auth      String   @db.VarChar(255)
+  userAgent String?  @db.VarChar(255)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("pushsubscription")
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String           @db.VarChar(191)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId String?          @db.VarChar(191)
+  type      NotificationType
+  title     String           @db.VarChar(255)
+  body      String           @db.Text
+  data      Json?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+  @@map("notification")
+}
+
+model NotificationPreference {
+  id                 String   @id @default(uuid())
+  userId             String   @unique @db.VarChar(191)
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chatPushEnabled    Boolean  @default(true)
+  aiPushEnabled      Boolean  @default(true)
+  commentPushEnabled Boolean  @default(true)
+  soundEnabled       Boolean  @default(true)
+  mentionsOnly       Boolean  @default(false)
+  updatedAt          DateTime @updatedAt
+
+  @@map("notificationpreference")
 }
