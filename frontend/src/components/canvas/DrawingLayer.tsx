@@ -75,7 +75,7 @@ const OpenArrow = ({ points, stroke, strokeWidth, pointerAtBeginning, pointerAtB
   const startX = points[points.length - 4];
   const startY = points[points.length - 3];
   
-  const headLength = 12; // Length of arrow head lines
+  const headLength = Math.max(12, (strokeWidth || 2) * 5); // Length of arrow head lines scales with strokeWidth
   
   const drawHead = (hx: number, hy: number, tx: number, ty: number) => {
     const angle = Math.atan2(hy - ty, hx - tx);
@@ -89,12 +89,12 @@ const OpenArrow = ({ points, stroke, strokeWidth, pointerAtBeginning, pointerAtB
 
   return (
     <Group {...props}>
-      <Line points={points} stroke={stroke} strokeWidth={strokeWidth} lineCap="round" lineJoin="round" />
+      <Line points={points} stroke={stroke} strokeWidth={strokeWidth} lineCap="round" lineJoin="round" fillEnabled={false} />
       {(!pointerAtBeginning || pointerAtBothEnds) && (
-        <Line points={endHead} stroke={stroke} strokeWidth={strokeWidth} lineCap="round" lineJoin="round" />
+        <Line points={endHead} stroke={stroke} strokeWidth={strokeWidth} lineCap="round" lineJoin="round" fillEnabled={false} />
       )}
       {(pointerAtBeginning || pointerAtBothEnds) && (
-        <Line points={startHead} stroke={stroke} strokeWidth={strokeWidth} lineCap="round" lineJoin="round" />
+        <Line points={startHead} stroke={stroke} strokeWidth={strokeWidth} lineCap="round" lineJoin="round" fillEnabled={false} />
       )}
     </Group>
   );
