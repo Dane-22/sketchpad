@@ -44,8 +44,8 @@ interface CanvasStateStore {
   eraserMode: 'hover' | 'click';
   setEraserMode: (mode: 'hover' | 'click') => void;
   cropTargetId: string | null;
-  cropMode: CropMode;
-  startCropping: (id: string, mode: CropMode) => void;
+  cropMode: 'rect' | 'freehand' | 'image_eraser' | null;
+  startCropping: (id: string, mode: 'rect' | 'freehand' | 'image_eraser') => void;
   stopCropping: () => void;
   
   setElements: (elements: CanvasElement[] | ((prev: CanvasElement[]) => CanvasElement[]), commit?: boolean, isRemote?: boolean, broadcast?: boolean, projectId?: string) => void;

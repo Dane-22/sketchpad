@@ -21,7 +21,6 @@ export const InlineCropOverlay: React.FC<InlineCropOverlayProps> = ({ projectId 
   const [isErasing, setIsErasing] = useState(false);
   const [brushSize, setBrushSize] = useState(20);
 
-  const [isProcessing, setIsProcessing] = useState(false);
   const isProcessingRef = useRef(false);
   const pendingApplyRef = useRef(false);
   const rectRef = useRef<any>(null);
@@ -61,7 +60,6 @@ export const InlineCropOverlay: React.FC<InlineCropOverlayProps> = ({ projectId 
       return;
     }
     isProcessingRef.current = true;
-    setIsProcessing(true);
     try {
       if (!targetElement.src) throw new Error("No image source");
       
@@ -131,7 +129,6 @@ export const InlineCropOverlay: React.FC<InlineCropOverlayProps> = ({ projectId 
       alert("Failed to crop image. CORS issue?");
     } finally {
       isProcessingRef.current = false;
-      setIsProcessing(false);
       
       if (pendingApplyRef.current) {
         pendingApplyRef.current = false;

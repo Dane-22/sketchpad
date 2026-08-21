@@ -15,7 +15,6 @@ export interface RemoteCursor {
 export const useCollaboration = (projectId?: string) => {
   const [remoteCursors, setRemoteCursors] = useState<Record<string, RemoteCursor>>({});
   const { setElements, addElement, updateElement, removeElement, setActiveProjectId, textColor } = useCanvasState();
-  const currentUser = useAuthStore((state) => state.user);
   const lastEmitRef = useRef<number>(0);
 
   useEffect(() => {

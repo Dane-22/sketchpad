@@ -119,7 +119,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
     onClose();
   };
 
-  const handleStartCrop = (mode: 'rect' | 'freehand') => {
+  const handleStartCrop = (mode: 'rect' | 'freehand' | 'image_eraser') => {
     startCropping(elementId, mode);
     onClose();
   };
