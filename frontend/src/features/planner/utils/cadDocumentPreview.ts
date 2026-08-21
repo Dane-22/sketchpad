@@ -189,8 +189,13 @@ export async function generateCadDocumentPreview(file: File): Promise<CadDocumen
   }
 
   // 3. Fallback: Generate a crisp Blueprint Sheet with Project Title Block
-  const width = 1200;
-  const height = 800;
+  // Scale up internal resolution by 4x to ensure high-DPI quality
+  const renderScale = 4;
+  const logicalWidth = 1200;
+  const logicalHeight = 800;
+  
+  const width = logicalWidth * renderScale;
+  const height = logicalHeight * renderScale;
 
   const canvas = document.createElement('canvas');
   canvas.width = width;
@@ -201,8 +206,11 @@ export async function generateCadDocumentPreview(file: File): Promise<CadDocumen
     throw new Error('Canvas context could not be created');
   }
 
+  // Scale the context so drawing coordinates can remain at logical resolution
+  ctx.scale(renderScale, renderScale);
+
   // Background
-  const bgGrad = ctx.createLinearGradient(0, 0, width, height);
+  const bgGrad = ctx.createLinearGradient(0, 0, logicalWidth, logicalHeight);
   if (isDwg) {
     bgGrad.addColorStop(0, '#0a192f');
     bgGrad.addColorStop(1, '#0f2744');
@@ -214,33 +222,33 @@ export async function generateCadDocumentPreview(file: File): Promise<CadDocumen
     bgGrad.addColorStop(1, '#1e293b');
   }
   ctx.fillStyle = bgGrad;
-  ctx.fillRect(0, 0, width, height);
+  ctx.fillRect(0, 0, logicalWidth, logicalHeight);
 
   // Architectural Grid
   ctx.strokeStyle = isDwg ? 'rgba(0, 229, 255, 0.08)' : isSkp ? 'rgba(239, 68, 68, 0.08)' : 'rgba(59, 130, 246, 0.08)';
   ctx.lineWidth = 1;
   const gridSize = 40;
-  for (let x = 0; x < width; x += gridSize) {
+  for (let x = 0; x < logicalWidth; x += gridSize) {
     ctx.beginPath();
     ctx.moveTo(x, 0);
-    ctx.lineTo(x, height);
+    ctx.lineTo(x, logicalHeight);
     ctx.stroke();
   }
-  for (let y = 0; y < height; y += gridSize) {
+  for (let y = 0; y < logicalHeight; y += gridSize) {
     ctx.beginPath();
     ctx.moveTo(0, y);
-    ctx.lineTo(width, y);
+    ctx.lineTo(logicalWidth, y);
     ctx.stroke();
   }
 
   // Outer Border
   ctx.strokeStyle = isDwg ? '#00e5ff' : isSkp ? '#ef4444' : '#3b82f6';
   ctx.lineWidth = 3;
-  ctx.strokeRect(20, 20, width - 40, height - 40);
+  ctx.strokeRect(20, 20, logicalWidth - 40, logicalHeight - 40);
 
   // Header Title Block
   ctx.fillStyle = isDwg ? 'rgba(0, 229, 255, 0.12)' : isSkp ? 'rgba(239, 68, 68, 0.12)' : 'rgba(59, 130, 246, 0.12)';
-  ctx.fillRect(30, 30, width - 60, 60);
+  ctx.fillRect(30, 30, logicalWidth - 60, 60);
 
   ctx.fillStyle = isDwg ? '#00e5ff' : isSkp ? '#ef4444' : '#3b82f6';
   ctx.font = 'bold 18px "Inter", sans-serif';
@@ -252,8 +260,8 @@ export async function generateCadDocumentPreview(file: File): Promise<CadDocumen
   ctx.fillText(file.name, 450, 66);
 
   // Plan Body Framing
-  const cx = width / 2;
-  const cy = height / 2 + 10;
+  const cx = logicalWidth / 2;
+  const cy = logicalHeight / 2 + 10;
 
   ctx.fillStyle = isDwg ? '#38bdf8' : isSkp ? '#f87171' : '#60a5fa';
   ctx.font = 'bold 24px "Inter", sans-serif';
@@ -267,13 +275,13 @@ export async function generateCadDocumentPreview(file: File): Promise<CadDocumen
   // Footer Info Block
   ctx.textAlign = 'left';
   ctx.fillStyle = isDwg ? 'rgba(0, 229, 255, 0.08)' : isSkp ? 'rgba(239, 68, 68, 0.08)' : 'rgba(59, 130, 246, 0.08)';
-  ctx.fillRect(30, height - 70, width - 60, 40);
+  ctx.fillRect(30, logicalHeight - 70, logicalWidth - 60, 40);
 
   ctx.fillStyle = '#cbd5e1';
   ctx.font = 'bold 12px "Inter", sans-serif';
-  ctx.fillText(`PLAN: ${file.name}`, 50, height - 45);
-  ctx.fillText(`SIZE: ${formatFileSize(file.size)}`, 550, height - 45);
-  ctx.fillText(`STATUS: ACTIVE PROJECT SHEET`, 850, height - 45);
+  ctx.fillText(`PLAN: ${file.name}`, 50, logicalHeight - 45);
+  ctx.fillText(`SIZE: ${formatFileSize(file.size)}`, 550, logicalHeight - 45);
+  ctx.fillText(`STATUS: ACTIVE PROJECT SHEET`, 850, logicalHeight - 45);
 
   const fallbackBlob = await canvasToBlob(canvas, 'image/webp', 0.95);
   const fallbackDataUrl = canvas.toDataURL('image/webp', 0.95);

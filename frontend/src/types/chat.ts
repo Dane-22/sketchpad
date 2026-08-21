@@ -15,11 +15,13 @@ export interface GroupMember {
 }
 
 export interface ChatAttachment {
-  type: 'canvas-location' | 'comment-pin';
+  type: 'canvas-location' | 'comment-pin' | 'image' | 'file';
   x?: number;
   y?: number;
   commentId?: string;
   label?: string;
+  fileUrl?: string;
+  fileName?: string;
 }
 
 export interface ChatMessage {

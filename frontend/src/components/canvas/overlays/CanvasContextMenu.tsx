@@ -11,7 +11,10 @@ import {
   Sliders,
   MessageSquarePlus,
   Layers,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Crop,
+  Scissors,
+  Eraser
 } from 'lucide-react';
 import { useCanvasState } from '../../../features/planner/hooks/useCanvasState';
 
@@ -40,6 +43,7 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
     toggleLockElement,
     setElementOpacity,
     rotateElement,
+    startCropping,
   } = useCanvasState();
 
   const element = elements.find((e) => e.id === elementId);
@@ -115,6 +119,11 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
     onClose();
   };
 
+  const handleStartCrop = (mode: 'rect' | 'freehand') => {
+    startCropping(elementId, mode);
+    onClose();
+  };
+
   return (
     <div
       ref={menuRef}
@@ -166,6 +175,42 @@ export const CanvasContextMenu: React.FC<CanvasContextMenuProps> = ({
           <span>{isLocked ? 'Unlock Position' : 'Lock in Place'}</span>
         </div>
       </button>
+
+      {isImage && (
+        <>
+          <div className="h-px bg-slate-800 my-0.5" />
+          <div className="px-2.5 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+            Image Tools
+          </div>
+          <button
+            onClick={() => handleStartCrop('rect')}
+            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-800 hover:text-white transition-colors text-left"
+          >
+            <div className="flex items-center gap-2">
+              <Crop size={14} className="text-emerald-400" />
+              <span>Crop (Rectangular)</span>
+            </div>
+          </button>
+          <button
+            onClick={() => handleStartCrop('freehand')}
+            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-800 hover:text-white transition-colors text-left"
+          >
+            <div className="flex items-center gap-2">
+              <Scissors size={14} className="text-emerald-400" />
+              <span>Freeform Crop</span>
+            </div>
+          </button>
+          <button
+            onClick={() => handleStartCrop('image_eraser')}
+            className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-800 hover:text-white transition-colors text-left"
+          >
+            <div className="flex items-center gap-2">
+              <Eraser size={14} className="text-emerald-400" />
+              <span>Erase Background (Brush)</span>
+            </div>
+          </button>
+        </>
+      )}
 
       <div className="h-px bg-slate-800 my-0.5" />
 

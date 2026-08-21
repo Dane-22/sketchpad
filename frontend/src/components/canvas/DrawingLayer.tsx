@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Group, Line, Rect, Text, Circle, Arc, Path, Transformer, Arrow, Image as KonvaImage } from 'react-konva';
+import { Group, Line, Rect, Text, Circle, Arc, Path, Transformer, Image as KonvaImage } from 'react-konva';
 import Konva from 'konva';
 import { useCanvasState } from '../../features/planner/hooks/useCanvasState';
 import { calculateLineCenterAndAngle, calculateDistance, formatDistance, calculatePolygonArea, formatArea, calculateCentroid } from '../../features/planner/utils/geometryMath';
@@ -8,7 +8,7 @@ import { CanvasElement } from '../../types/canvas';
 
 export const imageCache = new Map<string, HTMLImageElement>();
 
-const KonvaImageElement = ({ el, props, activeTool }: { el: CanvasElement; props: any; activeTool: string }) => {
+const KonvaImageElement = ({ el, props, activeTool, isSelected, isHovered }: { el: CanvasElement; props: any; activeTool: string; isSelected?: boolean; isHovered?: boolean }) => {
   const [imageObj, setImageObj] = useState<HTMLImageElement | null>(() => {
     return el.src ? imageCache.get(el.src) || null : null;
   });
@@ -57,21 +57,65 @@ const KonvaImageElement = ({ el, props, activeTool }: { el: CanvasElement; props
       scaleX={el.scaleX}
       scaleY={el.scaleY}
       rotation={el.rotation}
-      perfectDrawEnabled={false}
+      perfectDrawEnabled={true}
       listening={activeTool === 'select' || activeTool === 'eraser'}
       {...props}
+      strokeEnabled={isSelected || isHovered}
     />
+  );
+};
+
+const OpenArrow = ({ points, stroke, strokeWidth, pointerAtBeginning, pointerAtBothEnds, ...props }: any) => {
+  if (!points || points.length < 4) {
+    return <Line points={points} stroke={stroke} strokeWidth={strokeWidth} {...props} />;
+  }
+  
+  const endX = points[points.length - 2];
+  const endY = points[points.length - 1];
+  const startX = points[points.length - 4];
+  const startY = points[points.length - 3];
+  
+  const headLength = 12; // Length of arrow head lines
+  
+  const drawHead = (hx: number, hy: number, tx: number, ty: number) => {
+    const angle = Math.atan2(hy - ty, hx - tx);
+    const p1 = { x: hx - headLength * Math.cos(angle - Math.PI / 6), y: hy - headLength * Math.sin(angle - Math.PI / 6) };
+    const p2 = { x: hx - headLength * Math.cos(angle + Math.PI / 6), y: hy - headLength * Math.sin(angle + Math.PI / 6) };
+    return [p1.x, p1.y, hx, hy, p2.x, p2.y];
+  };
+
+  const endHead = drawHead(endX, endY, startX, startY);
+  const startHead = drawHead(points[0], points[1], points[2], points[3]);
+
+  return (
+    <Group {...props}>
+      <Line points={points} stroke={stroke} strokeWidth={strokeWidth} lineCap="round" lineJoin="round" />
+      {(!pointerAtBeginning || pointerAtBothEnds) && (
+        <Line points={endHead} stroke={stroke} strokeWidth={strokeWidth} lineCap="round" lineJoin="round" />
+      )}
+      {(pointerAtBeginning || pointerAtBothEnds) && (
+        <Line points={startHead} stroke={stroke} strokeWidth={strokeWidth} lineCap="round" lineJoin="round" />
+      )}
+    </Group>
   );
 };
 
 interface DrawingLayerProps {
   onOpenContextMenu?: (x: number, y: number, elementId: string) => void;
+  hoveredElementId?: string | null;
 }
 
-const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu }) => {
+const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu, hoveredElementId }) => {
 
   const { elements, activeTool, removeElement, selectedElementIds, setSelectedElementIds, toggleElementSelection, updateElement, theme, unitMode } = useCanvasState();
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+
+  // Sync external hoveredElementId with internal state if provided
+  useEffect(() => {
+    if (hoveredElementId !== undefined) {
+      setHoveredId(hoveredElementId);
+    }
+  }, [hoveredElementId]);
   const transformerRef = useRef<Konva.Transformer>(null);
   const groupRef = useRef<Konva.Group>(null);
 
@@ -225,15 +269,11 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu }) => {
               {/* Extension Line 2 */}
               <Line points={[ext2Start.x, ext2Start.y, ext2End.x, ext2End.y]} stroke={props.stroke} strokeWidth={el.strokeWidth || 1} />
               {/* Main Dimension Line */}
-              <Arrow
+              <OpenArrow
                 points={[d1.x, d1.y, d2.x, d2.y]}
-                stroke={props.stroke}
-                fill={props.stroke}
                 strokeWidth={el.strokeWidth || 1}
-                pointerLength={8}
-                pointerWidth={8}
-                pointerAtBeginning={true}
-                hitStrokeWidth={10}
+                pointerAtBothEnds={true}
+                {...props}
               />
               {/* Dimension Text */}
               <Group x={x} y={y} rotation={angle} listening={false}>
@@ -254,16 +294,12 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu }) => {
               {...props}
             />
           );
-        } else if (el.type === 'leader') {
+        } else if (el.type === 'arrow' || el.type === 'leader') {
           return (
-            <Arrow
+            <OpenArrow
               key={el.id}
               points={el.points || []}
-              fill={props.stroke}
               strokeWidth={el.strokeWidth || 2}
-              pointerLength={10}
-              pointerWidth={10}
-              hitStrokeWidth={10}
               {...props}
             />
           );
@@ -442,14 +478,10 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu }) => {
 
           return (
             <Group key={el.id} {...props}>
-              <Arrow
+              <OpenArrow
                 points={[textX, textY, tipX, tipY]}
-                stroke={props.stroke || '#00e5ff'}
-                fill={props.stroke || '#00e5ff'}
                 strokeWidth={el.strokeWidth || 2}
-                pointerLength={8}
-                pointerWidth={8}
-                hitStrokeWidth={10}
+                {...props}
               />
               <Group x={textX} y={textY - 14}>
                 <Rect
@@ -555,8 +587,10 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu }) => {
             </Group>
           );
         } else if (el.type === 'image') {
+          const isHovered = hoveredId === el.id;
+          const isSelected = selectedElementIds.includes(el.id) || !!(el.groupId && selectedElementIds.some(selId => elements.find(e => e.id === selId)?.groupId === el.groupId));
           return (
-            <KonvaImageElement key={el.id} el={el} props={props} activeTool={activeTool} />
+            <KonvaImageElement key={el.id} el={el} props={props} activeTool={activeTool} isSelected={isSelected} isHovered={isHovered} />
           );
         }
         return null;

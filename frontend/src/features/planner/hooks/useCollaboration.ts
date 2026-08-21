@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { socket } from '../utils/socket';
 import { useCanvasState } from './useCanvasState';
+import { useAuthStore } from '../../auth/store/useAuthStore';
 
 export interface RemoteCursor {
   socketId: string;
@@ -13,7 +14,8 @@ export interface RemoteCursor {
 
 export const useCollaboration = (projectId?: string) => {
   const [remoteCursors, setRemoteCursors] = useState<Record<string, RemoteCursor>>({});
-  const { setElements, addElement, updateElement, removeElement, setActiveProjectId } = useCanvasState();
+  const { setElements, addElement, updateElement, removeElement, setActiveProjectId, textColor } = useCanvasState();
+  const currentUser = useAuthStore((state) => state.user);
   const lastEmitRef = useRef<number>(0);
 
   useEffect(() => {
@@ -78,9 +80,18 @@ export const useCollaboration = (projectId?: string) => {
     const now = performance.now();
     if (now - lastEmitRef.current > 40) {
       lastEmitRef.current = now;
-      socket.emit('cursor-moved', { projectId, x, y });
+      const user = useAuthStore.getState().user;
+      
+      socket.emit('cursor-moved', { 
+        projectId, 
+        x, 
+        y,
+        userId: user?.id,
+        userName: user?.fullName || localStorage.getItem('user_name') || 'Engineer',
+        color: textColor
+      });
     }
-  }, [projectId]);
+  }, [projectId, textColor]);
 
   return { remoteCursors, emitCursorMove };
 };

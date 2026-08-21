@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import axios from 'axios';
 import {
   MessageSquare,
   Hash,
@@ -8,12 +9,21 @@ import {
   X,
   Minimize2,
   Maximize2,
-  Sparkles,
   MapPin,
   Loader2,
   Cpu,
-  UserPlus
+  UserPlus,
+  Paperclip,
+  Sparkles,
+  PanelLeftClose,
+  PanelLeftOpen,
+  File as FileIcon,
+  Download,
+  Import
 } from 'lucide-react';
+import { processParsedDXF } from '../../features/planner/utils/importCAD';
+import { convertPdfToImages, uploadCanvasAssetToServer } from '../../features/planner/utils/pdfConverter';
+import { generateCadDocumentPreview } from '../../features/planner/utils/cadDocumentPreview';
 import { useProjectMessenger } from '../../features/planner/hooks/useProjectMessenger';
 import { useCanvasState } from '../../features/planner/hooks/useCanvasState';
 import { CanvasComment } from '../../types/comment';
@@ -37,13 +47,27 @@ export const ProjectMessengerWidget: React.FC<ProjectMessengerWidgetProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
+  const [isChannelsExpanded, setIsChannelsExpanded] = useState(false);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [isAddMembersOpen, setIsAddMembersOpen] = useState(false);
   const [input, setInput] = useState('');
 
   const currentUser = useAuthStore((state) => state.user);
-  const { elements, stagePos, stageScale, unitMode } = useCanvasState();
+  const token = useAuthStore((state) => state.token);
+  const { 
+    elements, 
+    stagePos, 
+    stageScale, 
+    unitMode,
+    setElements,
+    addElement,
+    activeLayerId,
+    stageWidth,
+    stageHeight
+  } = useCanvasState();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
 
   const {
     channels,
@@ -137,6 +161,231 @@ export const ProjectMessengerWidget: React.FC<ProjectMessengerWidgetProps> = ({
     }
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await axios.post('/api/v1/uploads/canvas-asset', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      const { url, originalName } = res.data;
+      
+      const attachment: ChatAttachment = {
+        type: file.type.startsWith('image/') ? 'image' : 'file',
+        fileUrl: url,
+        fileName: originalName,
+        label: originalName
+      };
+
+      const text = input.trim() ? input : `Shared a file: ${originalName}`;
+      await sendMessage(text, [attachment], getCanvasContext());
+      setInput('');
+    } catch (err) {
+      console.error('File upload failed', err);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleImportToCanvas = async (fileUrl: string, fileName?: string, type?: string) => {
+    if (!fileUrl) return;
+    try {
+      setIsUploading(true);
+      
+      if (type === 'image' || fileName?.match(/\.(png|jpg|jpeg|webp|svg)$/i)) {
+        // Handle images natively
+        return new Promise<void>((resolve, reject) => {
+          const img = new window.Image();
+          img.crossOrigin = 'anonymous';
+          img.onload = () => {
+            const origWidth = img.width;
+            const origHeight = img.height;
+            
+            let scaleFit = 1;
+            const maxW = Math.max(stageWidth * 0.8, 800);
+            const maxH = Math.max(stageHeight * 0.8, 600);
+            scaleFit = Math.min(maxW / origWidth, maxH / origHeight, 1.5);
+            const targetWidth = origWidth * scaleFit;
+            const targetHeight = origHeight * scaleFit;
+            
+            const viewCenterX = (-stagePos.x + stageWidth / 2) / stageScale;
+            const viewCenterY = (-stagePos.y + stageHeight / 2) / stageScale;
+            const posX = viewCenterX - targetWidth / 2;
+            const posY = viewCenterY - targetHeight / 2;
+
+            const newElement: any = {
+              id: Date.now().toString(),
+              type: 'image',
+              name: fileName || 'Imported Image',
+              x: posX,
+              y: posY,
+              width: origWidth,
+              height: origHeight,
+              src: fileUrl,
+              opacity: 1,
+              locked: false,
+              layerId: activeLayerId,
+              scaleX: scaleFit,
+              scaleY: scaleFit
+            };
+
+            addElement(newElement, true, false);
+            if (onJumpToCanvas) {
+              onJumpToCanvas(viewCenterX, viewCenterY);
+            }
+            setIsUploading(false);
+            resolve();
+          };
+          img.onerror = (err) => {
+            console.error('Failed to load image for canvas:', err);
+            setIsUploading(false);
+            alert('Failed to load image.');
+            reject(err);
+          };
+          img.src = fileUrl;
+        });
+      }
+
+      // Fetch the file from the URL to get a Blob for CAD/PDF conversion
+      const response = await fetch(fileUrl);
+      const blob = await response.blob();
+      const file = new window.File([blob], fileName || 'imported-file', { type: blob.type });
+      const ext = fileName?.split('.').pop()?.toLowerCase() || '';
+
+      if (ext === 'pdf') {
+        const pages = await convertPdfToImages(file, 2.0); // Reduced scale for lower latency
+        if (pages.length > 0) {
+          const page = pages[0]; // Import the first page
+          let finalSrc = page.dataUrl;
+          try {
+            finalSrc = await uploadCanvasAssetToServer(page.blob, `${fileName}-p1.webp`);
+          } catch (e) {
+            console.warn('Could not upload PDF preview, using data URL');
+          }
+          
+          let scaleFit = 1;
+          const maxW = Math.max(stageWidth * 0.8, 800);
+          const maxH = Math.max(stageHeight * 0.8, 600);
+          scaleFit = Math.min(maxW / page.width, maxH / page.height, 1.5);
+          const targetWidth = page.width * scaleFit;
+          const targetHeight = page.height * scaleFit;
+          
+          const viewCenterX = (-stagePos.x + stageWidth / 2) / stageScale;
+          const viewCenterY = (-stagePos.y + stageHeight / 2) / stageScale;
+          const posX = viewCenterX - targetWidth / 2;
+          const posY = viewCenterY - targetHeight / 2;
+
+          const newElement: any = {
+            id: Date.now().toString(),
+            type: 'image',
+            name: fileName || 'Imported PDF',
+            x: posX,
+            y: posY,
+            width: page.width,
+            height: page.height,
+            src: finalSrc,
+            opacity: 1,
+            locked: false,
+            layerId: activeLayerId,
+            scaleX: scaleFit,
+            scaleY: scaleFit
+          };
+          
+          addElement(newElement, true, false);
+          if (onJumpToCanvas) {
+            onJumpToCanvas(viewCenterX, viewCenterY);
+          }
+          setIsUploading(false);
+          return;
+        }
+      } else if (['dwg', 'skp', 'skb', 'doc', 'docx'].includes(ext)) {
+        const cadPreview = await generateCadDocumentPreview(file);
+        let finalSrc = cadPreview.dataUrl;
+        try {
+          finalSrc = await uploadCanvasAssetToServer(cadPreview.blob, `${fileName}-preview.webp`);
+        } catch (e) {
+          console.warn('Could not upload SKP preview, using data URL');
+        }
+        
+        let scaleFit = 1;
+        const maxW = Math.max(stageWidth * 0.8, 800);
+        const maxH = Math.max(stageHeight * 0.8, 600);
+        scaleFit = Math.min(maxW / cadPreview.width, maxH / cadPreview.height, 1.5);
+        const targetWidth = cadPreview.width * scaleFit;
+        const targetHeight = cadPreview.height * scaleFit;
+        
+        const viewCenterX = (-stagePos.x + stageWidth / 2) / stageScale;
+        const viewCenterY = (-stagePos.y + stageHeight / 2) / stageScale;
+        const posX = viewCenterX - targetWidth / 2;
+        const posY = viewCenterY - targetHeight / 2;
+
+        const newElement: any = {
+          id: Date.now().toString(),
+          type: 'image',
+          name: fileName || 'Imported Model',
+          x: posX,
+          y: posY,
+          width: cadPreview.width,
+          height: cadPreview.height,
+          src: finalSrc,
+          opacity: 1,
+          locked: false,
+          layerId: activeLayerId,
+          scaleX: scaleFit,
+          scaleY: scaleFit
+        };
+        
+        addElement(newElement, true, false);
+        if (onJumpToCanvas) {
+          onJumpToCanvas(viewCenterX, viewCenterY);
+        }
+        setIsUploading(false);
+        return;
+      }
+      
+      const formData = new FormData();
+      formData.append('file', file);
+
+      // Send to the conversion API
+      const convRes = await axios.post('/api/v1/convert', formData, {
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+
+      const data = convRes.data;
+      if (data && data.parsedDxf) {
+        const { elements: newElements, scale, offsetX, offsetY } = processParsedDXF(
+          data.parsedDxf,
+          stageWidth,
+          stageHeight
+        );
+
+        setElements([...elements, ...newElements]);
+        
+        // Jump to the newly added elements approximately
+        if (onJumpToCanvas) {
+          onJumpToCanvas(-offsetX / scale + stageWidth / (2 * scale), -offsetY / scale + stageHeight / (2 * scale));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to import to canvas:', err);
+      alert('Failed to import file to canvas. Ensure it is a valid CAD or PDF file.');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
   return (
     <>
       <div className="fixed bottom-6 right-6 z-[80] flex flex-col items-end pointer-events-auto">
@@ -147,25 +396,13 @@ export const ProjectMessengerWidget: React.FC<ProjectMessengerWidgetProps> = ({
               setIsOpen(true);
               setIsMinimized(false);
             }}
-            className="group relative flex items-center gap-2.5 px-4 py-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500 text-white rounded-full shadow-2xl hover:shadow-[0_0_30px_rgba(59,130,246,0.6)] transition-all hover:scale-105 active:scale-95 border border-white/20"
+            className="group relative flex items-center justify-center w-14 h-14 bg-gradient-to-r from-blue-600 via-indigo-600 to-cyan-500 text-white rounded-full shadow-2xl hover:shadow-[0_0_30px_rgba(59,130,246,0.6)] transition-all hover:scale-105 active:scale-95 border border-white/20"
+            title="Team Messenger"
           >
-            <div className="p-1 rounded-full bg-white/20">
-              <MessageSquare size={17} className="text-white" />
-            </div>
-            <div className="flex flex-col items-start text-left">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-bold tracking-wide">Team Messenger</span>
-                <span className="flex items-center gap-0.5 px-1 py-0.2 rounded bg-cyan-400/20 text-cyan-200 text-[9px] font-bold">
-                  <Sparkles size={9} /> AI
-                </span>
-              </div>
-              <span className="text-[10px] text-blue-100 font-normal">
-                {activeChannel ? `#${activeChannel.name}` : 'Project Discussions'}
-              </span>
-            </div>
+            <MessageSquare size={24} className="text-white drop-shadow-md" />
 
             {totalUnreadCount > 0 && (
-              <span className="absolute -top-1 -right-1 px-2 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-bold shadow-md animate-bounce">
+              <span className="absolute top-0 right-0 px-1.5 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-bold shadow-md animate-bounce">
                 {totalUnreadCount}
               </span>
             )}
@@ -178,7 +415,7 @@ export const ProjectMessengerWidget: React.FC<ProjectMessengerWidgetProps> = ({
             className={`bg-slate-900/95 backdrop-blur-2xl border border-slate-700/80 rounded-3xl shadow-2xl overflow-hidden flex flex-col transition-all duration-300 ${
               isMinimized
                 ? 'w-80 h-14'
-                : 'w-[420px] sm:w-[540px] md:w-[620px] h-[580px]'
+                : 'w-[320px] sm:w-[380px] h-[480px]'
             }`}
           >
             {/* Top Bar */}
@@ -202,6 +439,19 @@ export const ProjectMessengerWidget: React.FC<ProjectMessengerWidgetProps> = ({
               </div>
 
               <div className="flex items-center gap-1">
+                {!isMinimized && (
+                  <button
+                    onClick={() => setIsChannelsExpanded(!isChannelsExpanded)}
+                    className={`p-1.5 rounded-lg transition-colors ${
+                      isChannelsExpanded 
+                        ? 'text-blue-400 hover:text-white hover:bg-slate-800' 
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                    }`}
+                    title={isChannelsExpanded ? 'Hide Channels' : 'Show Channels'}
+                  >
+                    {isChannelsExpanded ? <PanelLeftClose size={15} /> : <PanelLeftOpen size={15} />}
+                  </button>
+                )}
                 <button
                   onClick={() => setIsMinimized(!isMinimized)}
                   className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
@@ -221,11 +471,12 @@ export const ProjectMessengerWidget: React.FC<ProjectMessengerWidgetProps> = ({
             {!isMinimized && (
               <div className="flex-1 flex overflow-hidden">
                 {/* LEFT SIDEBAR: Channels & Groups */}
-                <div className="w-44 sm:w-48 bg-slate-950/90 border-r border-slate-800 flex flex-col shrink-0">
-                  <div className="p-2.5 border-b border-slate-800/80 flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
-                      Channels
-                    </span>
+                {isChannelsExpanded && (
+                  <div className="w-44 sm:w-48 bg-slate-950/90 border-r border-slate-800 flex flex-col shrink-0 transition-all duration-300">
+                    <div className="p-2.5 border-b border-slate-800/80 flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wider">
+                        Channels
+                      </span>
                     <button
                       onClick={() => setIsCreateGroupOpen(true)}
                       className="p-1 text-blue-400 hover:text-white hover:bg-blue-600/20 rounded-md transition-colors"
@@ -270,7 +521,8 @@ export const ProjectMessengerWidget: React.FC<ProjectMessengerWidgetProps> = ({
                       );
                     })}
                   </div>
-                </div>
+                  </div>
+                )}
 
                 {/* RIGHT CHAT AREA */}
                 <div className="flex-1 flex flex-col bg-slate-900/60 overflow-hidden">
@@ -377,24 +629,74 @@ export const ProjectMessengerWidget: React.FC<ProjectMessengerWidgetProps> = ({
                             >
                               {msg.content}
 
-                              {/* Canvas Location Jump Attachments */}
+                              {/* Attachments */}
                               {msg.attachments && msg.attachments.length > 0 && (
-                                <div className="mt-2 pt-2 border-t border-white/15 flex flex-wrap gap-1.5">
-                                  {msg.attachments.map((att, i) => (
-                                    <button
-                                      key={i}
-                                      type="button"
-                                      onClick={() => {
-                                        if (att.x !== undefined && att.y !== undefined && onJumpToCanvas) {
-                                          onJumpToCanvas(att.x, att.y);
-                                        }
-                                      }}
-                                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-black/30 hover:bg-black/50 text-[10px] font-bold text-cyan-200 border border-cyan-400/30 transition-all hover:scale-105"
-                                    >
-                                      <MapPin size={10} className="text-cyan-400" />
-                                      <span>{att.label || '📍 View on Canvas'}</span>
-                                    </button>
-                                  ))}
+                                <div className="mt-2 pt-2 border-t border-white/15 flex flex-col gap-2">
+                                  {msg.attachments.map((att, i) => {
+                                    if (att.type === 'canvas-location') {
+                                      return (
+                                        <button
+                                          key={i}
+                                          type="button"
+                                          onClick={() => {
+                                            if (att.x !== undefined && att.y !== undefined && onJumpToCanvas) {
+                                              onJumpToCanvas(att.x, att.y);
+                                            }
+                                          }}
+                                          className="self-start flex items-center gap-1 px-2 py-1 rounded-lg bg-black/30 hover:bg-black/50 text-[10px] font-bold text-cyan-200 border border-cyan-400/30 transition-all hover:scale-105"
+                                        >
+                                          <MapPin size={10} className="text-cyan-400" />
+                                          <span>{att.label || '📍 View on Canvas'}</span>
+                                        </button>
+                                      );
+                                    } else if (att.type === 'image') {
+                                      return (
+                                        <div key={i} className="flex flex-col gap-1 items-start">
+                                          <img 
+                                            src={att.fileUrl} 
+                                            alt={att.fileName || 'Image attachment'} 
+                                            className="max-w-[200px] max-h-[200px] rounded-lg border border-white/20 object-cover"
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => handleImportToCanvas(att.fileUrl!, att.fileName, att.type)}
+                                            className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/20 hover:bg-emerald-500/40 text-[10px] font-bold text-emerald-200 border border-emerald-400/30 transition-all"
+                                          >
+                                            <Import size={10} />
+                                            <span>Add to Canvas</span>
+                                          </button>
+                                        </div>
+                                      );
+                                    } else if (att.type === 'file') {
+                                      const isConvertible = att.fileName?.match(/\.(dwg|dxf|skp|pdf)$/i);
+                                      return (
+                                        <div key={i} className="flex flex-col gap-1 items-start">
+                                          <a 
+                                            href={att.fileUrl} 
+                                            download 
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black/20 hover:bg-black/40 border border-white/10 transition-colors max-w-full"
+                                          >
+                                            <FileIcon size={16} className="text-blue-300 shrink-0" />
+                                            <span className="text-xs text-blue-100 truncate">{att.fileName}</span>
+                                            <Download size={12} className="text-slate-400 shrink-0 ml-2" />
+                                          </a>
+                                          {isConvertible && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleImportToCanvas(att.fileUrl!, att.fileName, att.type)}
+                                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-500/20 hover:bg-emerald-500/40 text-[10px] font-bold text-emerald-200 border border-emerald-400/30 transition-all"
+                                            >
+                                              <Import size={10} />
+                                              <span>Import to Canvas</span>
+                                            </button>
+                                          )}
+                                        </div>
+                                      );
+                                    }
+                                    return null;
+                                  })}
                                 </div>
                               )}
                             </div>
@@ -441,17 +743,31 @@ export const ProjectMessengerWidget: React.FC<ProjectMessengerWidgetProps> = ({
                     onSubmit={(e) => handleSend(e)}
                     className="p-2.5 border-t border-slate-800 bg-slate-950/80 flex gap-2 items-center"
                   >
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                      title="Attach File"
+                    >
+                      <Paperclip size={18} />
+                    </button>
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
                     <input
                       type="text"
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       placeholder={`Message #${activeChannel?.name || 'group'} (type @ai to ask)...`}
-                      disabled={isSending}
+                      disabled={isSending || isUploading}
                       className="flex-1 bg-slate-900 border border-slate-700/80 rounded-xl px-3.5 py-2 text-xs text-white placeholder:text-slate-400 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
                     />
                     <button
                       type="submit"
-                      disabled={!input.trim() || isSending}
+                      disabled={!input.trim() || isSending || isUploading}
                       className="p-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:opacity-90 transition-opacity disabled:opacity-40 shadow-sm shrink-0 font-semibold"
                     >
                       <Send size={14} />

@@ -139,7 +139,7 @@ const TopNavbar: React.FC<TopNavbarProps> = ({
                 ? 'bg-amber-500/20 border-amber-500/40 text-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
                 : 'bg-theme-hover border-theme-border text-theme-primary hover:bg-white/10'
             }`}
-            title="Toggle Canvas Discussions & Comment Pins"
+            title="Toggle Canvass Discussions & Comment Pins"
           >
             <MessageSquare size={16} />
             <span>Discussions</span>

@@ -3,9 +3,9 @@ import RibbonTab from './RibbonTab';
 import RibbonPanel from './RibbonPanel';
 import RibbonTool from './RibbonTool';
 import { 
-  Minus, Spline, Circle, PenLine, Square, Eraser, Clock,
+  Minus, Spline, PenLine, Eraser, Clock,
   Highlighter, Cloud, MessageSquareQuote, Type, Ruler, Stamp,
-  ChevronDown, CheckCircle2
+  ChevronDown, CheckCircle2, ArrowUpRight, Palette
 } from 'lucide-react';
 import { useCanvasState } from '../../features/planner/hooks/useCanvasState';
 import { useToast } from '../ui/ToastProvider';
@@ -20,8 +20,12 @@ const RibbonMenu = () => {
     activeTool, setActiveTool,
     activeStampType, setActiveStampType,
     highlighterColor, setHighlighterColor,
-    setTextColor, textColor
+    setTextColor, textColor,
+    eraserMode, setEraserMode
   } = useCanvasState();
+
+  const [isInkDropdownOpen, setIsInkDropdownOpen] = useState(false);
+  const [isEraserDropdownOpen, setIsEraserDropdownOpen] = useState(false);
 
   const tabs = ['Home', 'Insert', 'Annotate', 'Parametric', 'View', 'Manage', 'Output', 'Collaborate', 'Express Tools'];
 
@@ -48,6 +52,17 @@ const RibbonMenu = () => {
     { color: '#34c759', label: 'Emerald Green' },
     { color: '#ff2d55', label: 'Hot Pink' },
     { color: '#ff9500', label: 'Bright Orange' },
+  ];
+
+  const inkColors = [
+    { color: '#ffffff', label: 'White' },
+    { color: '#ef4444', label: 'Red' },
+    { color: '#f59e0b', label: 'Orange' },
+    { color: '#eab308', label: 'Yellow' },
+    { color: '#10b981', label: 'Green' },
+    { color: '#3b82f6', label: 'Blue' },
+    { color: '#8b5cf6', label: 'Purple' },
+    { color: '#ec4899', label: 'Pink' }
   ];
 
   return (
@@ -88,10 +103,10 @@ const RibbonMenu = () => {
                 onClick={() => { setActiveTool('polyline'); showToast("Click points to draw a polyline. Double-click or press Enter to finish."); }} 
               />
               <RibbonTool 
-                icon={<Circle size={24} />} 
-                label="Circle" 
-                isActive={activeTool === 'circle'} 
-                onClick={() => { setActiveTool('circle'); showToast("Click and drag to draw a circle."); }} 
+                icon={<ArrowUpRight size={24} />} 
+                label="Arrow" 
+                isActive={activeTool === 'arrow'} 
+                onClick={() => { setActiveTool('arrow'); showToast("Click and drag to draw an arrow."); }} 
               />
               <RibbonTool 
                 icon={<PenLine size={24} />} 
@@ -99,22 +114,89 @@ const RibbonMenu = () => {
                 isActive={activeTool === 'freehand'} 
                 onClick={() => { setActiveTool('freehand'); showToast("Click and drag to draw freehand."); }} 
               />
-              <RibbonTool 
-                icon={<Square size={24} />} 
-                label="Rectangle" 
-                isActive={activeTool === 'rectangle'} 
-                onClick={() => { setActiveTool('rectangle'); showToast("Click and drag to draw a rectangle."); }} 
-              />
+              <div className="relative">
+                <RibbonTool 
+                  icon={<Palette size={24} style={{ color: textColor }} />} 
+                  label="Ink Color" 
+                  isActive={false} 
+                  onClick={() => setIsInkDropdownOpen(!isInkDropdownOpen)} 
+                />
+                {isInkDropdownOpen && (
+                  <div className="absolute left-0 top-full mt-1 bg-theme-surface border border-theme-border shadow-2xl rounded-lg p-2 z-50 flex flex-col gap-1 w-32">
+                    <span className="text-[10px] text-theme-muted font-semibold uppercase px-1">Ink Color</span>
+                    {inkColors.map(c => (
+                      <button
+                        key={c.color}
+                        onClick={() => {
+                          setTextColor(c.color);
+                          setIsInkDropdownOpen(false);
+                          showToast(`Ink color changed to ${c.label}`);
+                        }}
+                        className="flex items-center gap-2 px-2 py-1 text-xs text-left rounded hover:bg-white/10 text-theme-primary"
+                      >
+                        <span className="w-3.5 h-3.5 rounded-full border border-black/30" style={{ backgroundColor: c.color }} />
+                        <span>{c.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </RibbonPanel>
 
             {/* Modify Panel */}
             <RibbonPanel label="Modify">
-              <RibbonTool 
-                icon={<Eraser size={24} />} 
-                label="Eraser" 
-                isActive={activeTool === 'eraser'} 
-                onClick={() => { setActiveTool('eraser'); showToast("Click on an element to delete it."); }} 
-              />
+              <div className="relative">
+                <RibbonTool 
+                  icon={<Eraser size={24} />} 
+                  label={`Eraser`} 
+                  isActive={activeTool === 'eraser'} 
+                  onClick={() => {
+                    if (activeTool === 'eraser') {
+                      setIsEraserDropdownOpen(!isEraserDropdownOpen);
+                    } else {
+                      setActiveTool('eraser'); 
+                      showToast(`Eraser active (${eraserMode} to erase)`); 
+                    }
+                  }} 
+                />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsEraserDropdownOpen(!isEraserDropdownOpen);
+                  }}
+                  className="absolute bottom-1 right-1 p-0.5 rounded hover:bg-white/10 text-theme-muted hover:text-white"
+                  title="Change Eraser Mode"
+                >
+                  <ChevronDown size={12} />
+                </button>
+                {isEraserDropdownOpen && (
+                  <div className="absolute left-0 top-full mt-1 bg-theme-surface border border-theme-border shadow-2xl rounded-lg p-2 z-50 flex flex-col gap-1 w-36">
+                    <span className="text-[10px] text-theme-muted font-semibold uppercase px-1">Eraser Mode</span>
+                    <button
+                      onClick={() => {
+                        setEraserMode('hover');
+                        setIsEraserDropdownOpen(false);
+                        showToast(`Eraser mode changed to Hover`);
+                      }}
+                      className="flex items-center gap-2 px-2 py-1 text-xs text-left rounded hover:bg-white/10 text-theme-primary"
+                    >
+                      <span>Hover to Erase</span>
+                      {eraserMode === 'hover' && <CheckCircle2 size={14} className="ml-auto text-cyan-400" />}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEraserMode('click');
+                        setIsEraserDropdownOpen(false);
+                        showToast(`Eraser mode changed to Click`);
+                      }}
+                      className="flex items-center gap-2 px-2 py-1 text-xs text-left rounded hover:bg-white/10 text-theme-primary"
+                    >
+                      <span>Click to Erase</span>
+                      {eraserMode === 'click' && <CheckCircle2 size={14} className="ml-auto text-cyan-400" />}
+                    </button>
+                  </div>
+                )}
+              </div>
             </RibbonPanel>
           </RibbonTab>
         ) : activeTab === 'Annotate' ? (

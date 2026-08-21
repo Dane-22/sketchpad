@@ -222,3 +222,21 @@ User Action (Delete / Duplicate / Draw)
 - **Isolated Project State**: `elements` are excluded from global `localStorage` partialize to prevent cross-project cache collisions.
 - **`isProjectLoaded` Guard**: Auto-save is suspended during initial MySQL fetch, preventing initial blank states from overwriting database records.
 - **Unload Keep-Alive Flush**: Guaranteed delivery of unsaved canvas state during abrupt browser refreshes.
+
+---
+
+## 8. Infrastructure & Production Performance Tuning
+
+To ensure stability in production environments, several critical optimizations have been implemented:
+
+### A. Nginx Static Asset Routing
+- Implemented specific location blocks (`location ^~ /uploads/`) to guarantee Nginx intercepts and serves all user-uploaded canvas imagery directly without reverse-proxying back to the Node backend, eliminating 404 errors during complex dashboard loads.
+
+### B. React Konva Canvas Rendering Optimization
+- **Layer Consolidation**: Refactored the core CAD canvas to render all tools (Grid, Drawing, Remote Cursors, Overlays, and Comment Pins) into a single master `<Layer id="main-layer">` utilizing modular `<Group>` components instead of individual layers. This fundamentally resolves the standard Konva memory warning (which warns against >5 layers) and drastically reduces WebGL memory footprint and memory spikes.
+
+### C. Host Machine Configuration
+- **Redis Overcommit**: Enabled `vm.overcommit_memory=1` on the production host machine. This allows the Redis cache to safely execute background saves and data replication without crashing during memory-intensive container operations.
+
+### D. Prisma Relational Consistency
+- Strict foreign key and relational cascade rules are maintained in `schema.prisma` across the `User`, `ChatChannel`, and `Comment` models. This ensures controller-level operations utilizing `include: { user: true }` joins execute flawlessly across the real-time websocket and REST architectures without triggering 500 Internal Server Errors.

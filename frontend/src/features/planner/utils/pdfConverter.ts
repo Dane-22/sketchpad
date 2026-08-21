@@ -17,7 +17,7 @@ export interface ConvertedPdfPage {
 /**
  * Converts a canvas element into a compressed Blob (WebP or JPEG).
  */
-export function canvasToBlob(canvas: HTMLCanvasElement, mimeType = 'image/webp', quality = 0.9): Promise<Blob> {
+export function canvasToBlob(canvas: HTMLCanvasElement, mimeType = 'image/webp', quality = 1.0): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob(
       (blob) => {
@@ -43,7 +43,7 @@ export function canvasToBlob(canvas: HTMLCanvasElement, mimeType = 'image/webp',
 /**
  * Converts a PDF File into an array of high-resolution image data URLs and Blobs (one per page).
  */
-export async function convertPdfToImages(file: File, renderScale = 2.0): Promise<ConvertedPdfPage[]> {
+export async function convertPdfToImages(file: File, renderScale = 8.0): Promise<ConvertedPdfPage[]> {
   const arrayBuffer = await file.arrayBuffer();
   const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
   const pdfDoc = await loadingTask.promise;
@@ -72,8 +72,8 @@ export async function convertPdfToImages(file: File, renderScale = 2.0): Promise
 
     await page.render(renderContext).promise;
 
-    const blob = await canvasToBlob(canvas, 'image/webp', 0.9);
-    const dataUrl = canvas.toDataURL('image/webp', 0.85);
+    const blob = await canvasToBlob(canvas, 'image/webp', 1.0);
+    const dataUrl = canvas.toDataURL('image/webp', 1.0);
 
     pages.push({
       pageNumber: pageNum,

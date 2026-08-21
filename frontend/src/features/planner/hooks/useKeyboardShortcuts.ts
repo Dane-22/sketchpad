@@ -12,20 +12,47 @@ export const useKeyboardShortcuts = () => {
   } = useCanvasState();
 
   useEffect(() => {
+    let keyBuffer = '';
+    let keyBufferTimeout: ReturnType<typeof setTimeout>;
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't intercept if user is typing in an input field (if any added later)
+      // Don't intercept if user is typing in an input field
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
         return;
       }
 
       const key = e.key.toLowerCase();
+      
+      // Update key buffer for sequences
+      keyBuffer += (e.key === 'Enter' ? 'enter' : key);
+      clearTimeout(keyBufferTimeout);
+      keyBufferTimeout = setTimeout(() => {
+        keyBuffer = '';
+      }, 1500); // 1.5 second buffer timeout
 
+      // Sequences
+      if (keyBuffer.endsWith('pl')) {
+        setActiveTool('polyline');
+        keyBuffer = '';
+        return;
+      }
+      if (keyBuffer.endsWith('zenterte') || keyBuffer.endsWith('zentere')) {
+        // Dispatch custom event for zoom extents
+        window.dispatchEvent(new CustomEvent('zoom-extents'));
+        keyBuffer = '';
+        return;
+      }
+
+      // Single keys
       switch (key) {
         case 'e':
           setActiveTool('eraser');
           break;
         case 'l':
           setActiveTool('line');
+          break;
+        case 'f':
+          setActiveTool('freehand');
           break;
         case 'c':
           setActiveTool('circle');
@@ -79,7 +106,10 @@ export const useKeyboardShortcuts = () => {
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      clearTimeout(keyBufferTimeout);
+    };
   }, [
     setActiveTool, gridVisible, setGridVisible, orthoMode, setOrthoMode, 
     undo, redo, selectedElementIds, removeElements,

@@ -125,7 +125,6 @@ export const uploadAndConvert = async (req: Request, res: Response) => {
             res.json({ parsedDxf });
             resolve();
           } catch (err: any) {
-            res.status(500).json({ error: err.message });
             reject(err);
           } finally {
             // Cleanup temp directories
@@ -138,7 +137,9 @@ export const uploadAndConvert = async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error("Upload error:", error);
-    res.status(500).json({ error: 'Server error during upload.' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: error.message || 'Server error during upload.' });
+    }
   }
 };
 

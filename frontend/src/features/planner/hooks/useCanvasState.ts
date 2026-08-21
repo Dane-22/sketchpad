@@ -41,6 +41,12 @@ interface CanvasStateStore {
   setHighlighterColor: (color: string) => void;
   highlighterWidth: number;
   setHighlighterWidth: (w: number) => void;
+  eraserMode: 'hover' | 'click';
+  setEraserMode: (mode: 'hover' | 'click') => void;
+  cropTargetId: string | null;
+  cropMode: CropMode;
+  startCropping: (id: string, mode: CropMode) => void;
+  stopCropping: () => void;
   
   setElements: (elements: CanvasElement[] | ((prev: CanvasElement[]) => CanvasElement[]), commit?: boolean, isRemote?: boolean, broadcast?: boolean, projectId?: string) => void;
   addElement: (element: CanvasElement, commit?: boolean, isRemote?: boolean, projectId?: string) => void;
@@ -128,10 +134,16 @@ export const useCanvasState = create<CanvasStateStore>()(
       setActiveTopicId: (id) => set({ activeTopicId: id }),
       activeStampType: 'APPROVED',
       setActiveStampType: (type) => set({ activeStampType: type }),
-      highlighterColor: '#ffe600',
+      highlighterColor: '#FFFF00',
       setHighlighterColor: (color) => set({ highlighterColor: color }),
-      highlighterWidth: 16,
+      highlighterWidth: 20,
       setHighlighterWidth: (w) => set({ highlighterWidth: w }),
+      eraserMode: 'hover',
+      setEraserMode: (mode) => set({ eraserMode: mode }),
+      cropTargetId: null,
+      cropMode: null,
+      startCropping: (id, mode) => set({ cropTargetId: id, cropMode: mode }),
+      stopCropping: () => set({ cropTargetId: null, cropMode: null }),
       
       setElements: (elementsOrUpdater, commit = true, isRemote = false, broadcast = false, projectId?: string) => set((state) => {
         const newElements = typeof elementsOrUpdater === 'function' ? elementsOrUpdater(state.elements) : elementsOrUpdater;
@@ -431,11 +443,8 @@ export const useCanvasState = create<CanvasStateStore>()(
         const toolMap: Record<string, ToolType> = {
           'L': 'line',
           'LINE': 'line',
-          'C': 'circle',
-          'CIRCLE': 'circle',
-          'REC': 'rectangle',
-          'RECTANG': 'rectangle',
-          'RECTANGLE': 'rectangle',
+          'ARROW': 'arrow',
+          'AR': 'arrow',
           'PL': 'polyline',
           'POLYLINE': 'polyline',
           'A': 'arc',
@@ -502,7 +511,7 @@ export const useCanvasState = create<CanvasStateStore>()(
       setUnitMode: (mode) => set({ unitMode: mode }),
       spawnStressTest: () => set((state) => {
         const newElements: CanvasElement[] = [];
-        const types: CanvasElement['type'][] = ['line', 'circle', 'rectangle', 'text'];
+        const types: CanvasElement['type'][] = ['line', 'arrow', 'text'];
         for (let i = 0; i < 10000; i++) {
           const type = types[Math.floor(Math.random() * types.length)];
           const x = Math.random() * 5000 - 2500;
@@ -511,10 +520,8 @@ export const useCanvasState = create<CanvasStateStore>()(
           let element: CanvasElement;
           if (type === 'line') {
              element = { id: `stress-${i}`, type: 'line', x: 0, y: 0, points: [x, y, x + Math.random() * 100, y + Math.random() * 100], stroke: '#ff0000', layerId: state.activeLayerId };
-          } else if (type === 'circle') {
-             element = { id: `stress-${i}`, type: 'circle', x, y, radius: Math.random() * 50, stroke: '#00ff00', layerId: state.activeLayerId };
-          } else if (type === 'rectangle') {
-             element = { id: `stress-${i}`, type: 'rectangle', x, y, width: Math.random() * 100, height: Math.random() * 100, stroke: '#0000ff', layerId: state.activeLayerId };
+          } else if (type === 'arrow') {
+             element = { id: `stress-${i}`, type: 'arrow', x: 0, y: 0, points: [x, y, x + Math.random() * 100, y + Math.random() * 100], stroke: '#00ff00', layerId: state.activeLayerId };
           } else {
              element = { id: `stress-${i}`, type: 'text', x, y, text: 'STRESS', fill: '#ffffff', layerId: state.activeLayerId };
           }

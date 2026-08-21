@@ -6,6 +6,8 @@ import { convertPdfToImages, convertImageFileToDataUrl, ConvertedPdfPage, upload
 import { generateCadDocumentPreview } from '../../features/planner/utils/cadDocumentPreview';
 import { imageCache } from '../canvas/DrawingLayer';
 import { CanvasElement } from '../../types/canvas';
+import { ImageCropper } from './ImageCropper';
+import { Crop } from 'lucide-react';
 
 interface UploadMediaModalProps {
   isOpen: boolean;
@@ -27,6 +29,9 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
 
   // Single Image / CAD Blueprint State
   const [previewImage, setPreviewImage] = useState<{ dataUrl: string; file: File; width: number; height: number; blob?: Blob } | null>(null);
+  
+  // Crop state
+  const [isCropping, setIsCropping] = useState(false);
 
   // Settings
   const [importMode, setImportMode] = useState<'append' | 'replace'>('append');
@@ -41,6 +46,7 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
     setActiveFileName('');
     setPreviewImage(null);
     setIsProcessing(false);
+    setIsCropping(false);
   };
 
   const handleClose = () => {
@@ -144,10 +150,11 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
     let targetHeight = origHeight;
 
     // Scale to a reasonable size if fitToView is selected
+    let scaleFit = 1;
     if (fitToView) {
       const maxW = Math.max(stageWidth * 0.8, 800);
       const maxH = Math.max(stageHeight * 0.8, 600);
-      const scaleFit = Math.min(maxW / origWidth, maxH / origHeight, 1.5);
+      scaleFit = Math.min(maxW / origWidth, maxH / origHeight, 1.5);
       targetWidth = origWidth * scaleFit;
       targetHeight = origHeight * scaleFit;
     }
@@ -164,14 +171,14 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
       name: activeFileName || 'Uploaded Document',
       x: posX,
       y: posY,
-      width: targetWidth,
-      height: targetHeight,
+      width: origWidth, // Preserve original resolution width
+      height: origHeight, // Preserve original resolution height
       src: finalSrc,
       opacity: 1,
       locked: false,
       layerId: activeLayerId,
-      scaleX: 1,
-      scaleY: 1
+      scaleX: scaleFit, // Use scaling instead of actual dimensions for crispness
+      scaleY: scaleFit
     };
 
     // Pre-cache image so it renders instantly on the Konva canvas
@@ -337,26 +344,56 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
                   <span>{activeFileName}</span>
                   <span className="text-xs font-normal text-theme-muted">({previewImage.width} × {previewImage.height}px)</span>
                 </div>
-                <button
-                  onClick={resetState}
-                  className="text-xs text-theme-muted hover:text-theme-primary underline"
-                >
-                  Choose different file
-                </button>
+                {!isCropping && (
+                  <button
+                    onClick={resetState}
+                    className="text-xs text-theme-muted hover:text-theme-primary underline"
+                  >
+                    Choose different file
+                  </button>
+                )}
               </div>
 
-              <div className="w-full h-52 bg-theme-main/50 rounded-xl border border-theme-border overflow-hidden flex items-center justify-center p-3">
-                <img 
-                  src={previewImage.dataUrl} 
-                  alt="Preview" 
-                  className="max-h-full max-w-full object-contain rounded shadow"
+              {isCropping ? (
+                <ImageCropper
+                  imageSrc={previewImage.dataUrl}
+                  onCropComplete={async (croppedDataUrl, newWidth, newHeight) => {
+                    const res = await fetch(croppedDataUrl);
+                    const blob = await res.blob();
+                    const newFile = new File([blob], previewImage.file.name, { type: 'image/webp' });
+                    setPreviewImage({
+                      dataUrl: croppedDataUrl,
+                      file: newFile,
+                      blob,
+                      width: newWidth,
+                      height: newHeight
+                    });
+                    setIsCropping(false);
+                  }}
+                  onCancel={() => setIsCropping(false)}
                 />
-              </div>
+              ) : (
+                <div className="relative group w-full h-52 bg-theme-main/50 rounded-xl border border-theme-border overflow-hidden flex items-center justify-center p-3">
+                  <img 
+                    src={previewImage.dataUrl} 
+                    alt="Preview" 
+                    className="max-h-full max-w-full object-contain rounded shadow"
+                  />
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <button
+                      onClick={() => setIsCropping(true)}
+                      className="px-4 py-2 bg-theme-accent text-white rounded-lg flex items-center gap-2 shadow-lg hover:scale-105 transition-transform"
+                    >
+                      <Crop size={18} /> Crop Image
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
-          {/* Options (Visible once a file is loaded) */}
-          {(previewImage || pdfPages.length > 0) && (
+          {/* Options (Visible once a file is loaded and not cropping) */}
+          {(previewImage || pdfPages.length > 0) && !isCropping && (
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 bg-theme-main/30 rounded-xl border border-theme-border text-xs">
               <div className="flex items-center gap-4">
                 <label className="flex items-center gap-2 cursor-pointer text-theme-primary">
@@ -414,7 +451,7 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
           </button>
           <button
             onClick={handleInsert}
-            disabled={!previewImage && pdfPages.length === 0}
+            disabled={(!previewImage && pdfPages.length === 0) || isCropping}
             className="flex items-center gap-2 px-5 py-2 text-xs font-semibold rounded-lg bg-theme-accent text-theme-main hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-theme-accent/10"
           >
             <Layers size={15} />

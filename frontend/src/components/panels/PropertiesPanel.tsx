@@ -4,7 +4,7 @@ import { X } from 'lucide-react';
 
 export const PropertiesPanel: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const { elements, selectedElementIds, updateElement, theme } = useCanvasState();
+  const { elements, selectedElementIds, updateElement, theme, startCropping } = useCanvasState();
 
   useEffect(() => {
     const handleToggle = () => setIsOpen((prev) => !prev);
@@ -101,6 +101,32 @@ export const PropertiesPanel: React.FC = () => {
               className="w-full h-8"
             />
           </div>
+
+          {selectedElement.type === 'image' && (
+            <div className="flex flex-col gap-2 mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+              <label className="text-xs text-gray-500 font-semibold mb-1">Image Tools</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button 
+                  onClick={() => startCropping(selectedElement.id, 'rect')}
+                  className={`py-1.5 px-3 text-xs font-medium rounded transition-colors ${theme === 'dark' ? 'bg-[#333] hover:bg-[#444] text-white border border-[#555]' : 'bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300'}`}
+                >
+                  Crop (Rect)
+                </button>
+                <button 
+                  onClick={() => startCropping(selectedElement.id, 'freehand')}
+                  className={`py-1.5 px-3 text-xs font-medium rounded transition-colors ${theme === 'dark' ? 'bg-[#333] hover:bg-[#444] text-white border border-[#555]' : 'bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300'}`}
+                >
+                  Freeform Crop
+                </button>
+                <button 
+                  onClick={() => startCropping(selectedElement.id, 'image_eraser')}
+                  className={`col-span-2 py-1.5 px-3 text-xs font-medium rounded transition-colors ${theme === 'dark' ? 'bg-[#333] hover:bg-[#444] text-white border border-[#555]' : 'bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300'}`}
+                >
+                  Erase Background (Brush)
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

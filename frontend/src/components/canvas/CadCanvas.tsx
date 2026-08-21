@@ -15,6 +15,10 @@ import { CommentPinLayer } from './CommentPinLayer';
 import { CanvasComment } from '../../types/comment';
 import { CanvasContextMenu } from './overlays/CanvasContextMenu';
 import { socket } from '../../features/planner/utils/socket';
+import { OnlineUsersWidget } from './OnlineUsersWidget';
+import { useAuthStore } from '../../features/auth/store/useAuthStore';
+import { getUserColor } from '../../features/planner/utils/colors';
+import { InlineCropOverlay } from './InlineCropOverlay';
 
 interface CadCanvasProps {
   projectId?: string;
@@ -50,7 +54,8 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
     commitHistory, activeLayerId, stageRotation, stagePitch,
     groups, setGroups, setSelectedElementIds,
     pendingCoordinate, setPendingCoordinate,
-    activeTopicId, activeStampType, highlighterColor, highlighterWidth
+    activeTopicId, activeStampType, highlighterColor, highlighterWidth,
+    eraserMode
   } = useCanvasState();
 
   const { remoteCursors, emitCursorMove } = useCollaboration(projectId);
@@ -60,10 +65,20 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
   const [activePolylineId, setActivePolylineId] = useState<string | null>(null);
   const [activeDimensionId, setActiveDimensionId] = useState<string | null>(null);
   const [dimensionStep, setDimensionStep] = useState<number>(0);
+
+  const currentUser = useAuthStore(state => state.user);
+  const defaultUserInkColor = currentUser ? getUserColor(currentUser.id) : '#00ffcc';
+
+  const lastPanPosRef = useRef<{ x: number, y: number } | null>(null);
+  const lastMiddleClickTimeRef = useRef<number>(0);
+  const isPanningRef = useRef(false);
+
+  const [isSpacebarDown, setIsSpacebarDown] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; elementId: string } | null>(null);
   const [snapIndicator, setSnapIndicator] = useState<{ point: {x: number, y: number}, type: SnapType } | null>(null);
+  const [hoveredElementId, setHoveredElementId] = useState<string | null>(null);
 
   const finishPolyline = useCallback(() => {
     if (!activePolylineId) return;
@@ -71,7 +86,6 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
     const targetEl = currentElements.find(el => el.id === activePolylineId);
     
     if (targetEl && targetEl.points && targetEl.points.length >= 4) {
-      // Clean up points: if the last 2 points are identical or duplicate click from double-click, trim them
       let finalPoints = [...targetEl.points];
       while (finalPoints.length >= 6) {
         const len = finalPoints.length;
@@ -103,6 +117,9 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
       if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
         return;
       }
+      if (e.key === ' ') {
+        setIsSpacebarDown(true);
+      }
       if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') {
         if (activePolylineId) {
           e.preventDefault();
@@ -110,8 +127,17 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         }
       }
     };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === ' ') {
+        setIsSpacebarDown(false);
+      }
+    };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
   }, [activePolylineId, finishPolyline]);
 
   // Auto-finish polyline if the tool is switched on the Ribbon or toolbar
@@ -120,6 +146,47 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
       finishPolyline();
     }
   }, [activeTool, activePolylineId, finishPolyline]);
+
+  const handleZoomExtents = useCallback(() => {
+    const currentElements = useCanvasState.getState().elements;
+    if (currentElements.length === 0) return;
+    
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    currentElements.forEach(el => {
+      minX = Math.min(minX, el.x || 0);
+      minY = Math.min(minY, el.y || 0);
+      maxX = Math.max(maxX, el.x + (el.width || 0), (el.x || 0) + (el.radius || 0));
+      maxY = Math.max(maxY, el.y + (el.height || 0), (el.y || 0) + (el.radius || 0));
+      if (el.points) {
+        for (let i = 0; i < el.points.length; i += 2) {
+          minX = Math.min(minX, el.points[i]);
+          minY = Math.min(minY, el.points[i + 1]);
+          maxX = Math.max(maxX, el.points[i]);
+          maxY = Math.max(maxY, el.points[i + 1]);
+        }
+      }
+    });
+
+    if (minX === Infinity) return;
+
+    const padding = 50;
+    const width = maxX - minX + padding * 2;
+    const height = maxY - minY + padding * 2;
+    
+    if (containerRef.current) {
+      const containerWidth = containerRef.current.offsetWidth;
+      const containerHeight = containerRef.current.offsetHeight;
+      const scaleX = containerWidth / width;
+      const scaleY = containerHeight / height;
+      const scale = Math.min(scaleX, scaleY);
+      
+      setStageScale(scale);
+      setStagePos({
+        x: -minX * scale + (containerWidth - width * scale) / 2,
+        y: -minY * scale + (containerHeight - height * scale) / 2
+      });
+    }
+  }, [setStageScale, setStagePos]);
 
   useEffect(() => {
     const handleResize = () => {
@@ -140,12 +207,14 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
 
     window.addEventListener('resize', handleResize);
     window.addEventListener('edit-text', handleEditText);
+    window.addEventListener('zoom-extents', handleZoomExtents);
     handleResize();
     return () => {
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('edit-text', handleEditText);
+      window.removeEventListener('zoom-extents', handleZoomExtents);
     };
-  }, []);
+  }, [handleZoomExtents]);
 
   // Update text color of the currently editing text if the user changes the color from the ribbon
   useEffect(() => {
@@ -160,6 +229,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
     }
     if (!stageRef.current) return;
 
+    // Zoom on any scroll (Standard CAD behavior)
     const scaleBy = 1.1;
     const stage = stageRef.current;
     const oldScale = stage.scaleX();
@@ -176,8 +246,6 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
     setStageScale(newScale);
 
     // Calculate new stage position
-    // Since transform applies offset -> scale -> rotate -> position
-    // newPos = pointer - rotated_scaled_point
     const rad = stageRotation * Math.PI / 180;
     const cos = Math.cos(rad);
     const sin = Math.sin(rad);
@@ -195,13 +263,71 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
     });
   };
 
-  const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    // Handle middle mouse button for panning
-    if (e.evt.button === 1) {
-      e.evt.preventDefault();
-      setIsPanning(true);
+  const handleHoverErase = useCallback((e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    if (activeTool !== 'eraser') {
+      if (hoveredElementId) setHoveredElementId(null);
       return;
     }
+    
+    const stage = e.target.getStage();
+    if (!stage) return;
+    const pointerPos = stage.getPointerPosition();
+    if (!pointerPos) return;
+
+    const shape = stage.getIntersection(pointerPos);
+    
+    if (shape) {
+      let node: any = shape;
+      let elementId = null;
+      while (node) {
+        const id = node.id();
+        if (id && elements.some(el => el.id === id)) {
+          elementId = id;
+          break;
+        }
+        node = node.parent;
+      }
+
+      if (elementId) {
+        if (eraserMode === 'hover') {
+          removeElement(elementId);
+          setHoveredElementId(null);
+        } else {
+          setHoveredElementId(elementId);
+        }
+      } else {
+        if (hoveredElementId) setHoveredElementId(null);
+      }
+    } else {
+      if (hoveredElementId) setHoveredElementId(null);
+    }
+  }, [activeTool, elements, removeElement, eraserMode, hoveredElementId]);
+
+  const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    // Handle middle mouse button or spacebar+left-click for panning
+    if (e.evt.button === 1 || e.evt.buttons === 4 || (e.evt.button === 0 && isSpacebarDown)) {
+      e.evt.preventDefault();
+
+      if (e.evt.button === 1 || e.evt.buttons === 4) {
+        const now = Date.now();
+        if (now - lastMiddleClickTimeRef.current < 300) {
+          handleZoomExtents();
+        }
+        lastMiddleClickTimeRef.current = now;
+      }
+
+      if (!isPanningRef.current) {
+        isPanningRef.current = true;
+        setIsPanning(true);
+        const stage = e.target.getStage();
+        if (stage) {
+          lastPanPosRef.current = stage.getPointerPosition();
+        }
+      }
+      return;
+    }
+
+    if (e.evt.button !== 0) return;
 
     if (!stageRef.current) return;
 
@@ -211,7 +337,19 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
       return;
     }
 
-    if (activeTool === 'select' || activeTool === 'symbol' || activeTool === 'eraser') return;
+    if (activeTool === 'eraser' && eraserMode === 'click' && hoveredElementId) {
+      removeElement(hoveredElementId);
+      setHoveredElementId(null);
+      return;
+    }
+
+    if (activeTool === 'select' || activeTool === 'symbol' || activeTool === 'eraser') {
+      if (e.target === stageRef.current) {
+        setSelectedElementIds([]);
+        useCanvasState.getState().stopCropping();
+      }
+      return;
+    }
     
     let pos = getRelativePointerPosition(stageRef.current);
 
@@ -228,7 +366,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         x: pos.x,
         y: pos.y,
         text: '',
-        stroke: textColor, // Use selected textColor
+        stroke: textColor === '#ffffff' ? defaultUserInkColor : textColor,
         strokeWidth: 0,
         scaleX: 1 / stageScale,
         scaleY: 1 / stageScale,
@@ -342,7 +480,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
       }
     }
     
-    if (activeTool === 'line' || activeTool === 'freehand' || activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'arc') {
+    if (activeTool === 'line' || activeTool === 'arrow' || activeTool === 'freehand' || activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'arc') {
       setIsDrawing(true);
       const id = Date.now().toString();
       setCurrentLineId(id);
@@ -352,14 +490,14 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         type: activeTool,
         x: pos.x,
         y: pos.y,
-        points: (activeTool === 'line' || activeTool === 'freehand') ? [pos.x, pos.y] : undefined,
+        points: (activeTool === 'line' || activeTool === 'arrow' || activeTool === 'freehand') ? [pos.x, pos.y] : undefined,
         width: activeTool === 'rectangle' ? 0 : undefined,
         height: activeTool === 'rectangle' ? 0 : undefined,
         radius: activeTool === 'circle' ? 0 : undefined,
         innerRadius: activeTool === 'arc' ? 0 : undefined,
         outerRadius: activeTool === 'arc' ? 0 : undefined,
         angle: activeTool === 'arc' ? 0 : undefined,
-        stroke: textColor || '#00ffcc', 
+        stroke: textColor === '#ffffff' ? defaultUserInkColor : textColor,
         strokeWidth: 2 / stageScale,
         layerId: activeLayerId,
         topicId: activeTopicId || undefined
@@ -393,7 +531,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
           x: 0,
           y: 0,
           points: [pos.x, pos.y, pos.x, pos.y],
-          stroke: textColor || '#00ffcc',
+          stroke: textColor === '#ffffff' ? defaultUserInkColor : textColor,
           strokeWidth: 2 / stageScale,
           layerId: activeLayerId,
           topicId: activeTopicId || undefined
@@ -413,7 +551,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
           y: 0,
           // P1(x,y), P2(x,y), Offset(x,y)
           points: [pos.x, pos.y, pos.x, pos.y, pos.x, pos.y],
-          stroke: textColor || '#00ffcc',
+          stroke: textColor === '#ffffff' ? defaultUserInkColor : textColor,
           strokeWidth: 1 / stageScale,
           layerId: activeLayerId,
           topicId: activeTopicId || undefined,
@@ -559,7 +697,53 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
     }
   }, [pendingCoordinate, activeTool, elements, isDrawing, currentLineId, activePolylineId, orthoMode, textColor, stageScale, activeLayerId, activeTopicId, highlighterWidth, setElements, commitHistory, setPendingCoordinate]);
 
-  const handleMouseMove = () => {
+  const handleMouseMove = (e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
+    // 1. Detect if we should pan natively from the event state (dynamic capture)
+    const evt = e.evt as any;
+    const buttons = typeof evt.buttons === 'number' ? evt.buttons : 0;
+    
+    // Some browsers lose the 'buttons' state on pointermove when dragging with middle-click.
+    // We make shouldPan sticky if isPanningRef.current is true.
+    const isMiddleButtonDown = (buttons & 4) !== 0;
+    const isSpacebarPan = isSpacebarDown && (buttons & 1) !== 0;
+    const shouldPan = isMiddleButtonDown || isSpacebarPan || isPanningRef.current;
+
+    if (shouldPan) {
+      if (!isPanningRef.current) {
+        isPanningRef.current = true;
+        setIsPanning(true);
+        const stage = e.target.getStage();
+        if (stage) {
+          lastPanPosRef.current = stage.getPointerPosition();
+        }
+      }
+      
+      if (lastPanPosRef.current) {
+        const stage = e.target.getStage();
+        if (stage) {
+          const currentPos = stage.getPointerPosition();
+          if (currentPos) {
+            const dx = currentPos.x - lastPanPosRef.current.x;
+            const dy = currentPos.y - lastPanPosRef.current.y;
+            const currentStagePos = useCanvasState.getState().stagePos;
+            setStagePos({
+              x: currentStagePos.x + dx,
+              y: currentStagePos.y + dy
+            });
+            lastPanPosRef.current = currentPos;
+          }
+        }
+      }
+      return; // Block drawing tools from processing during pan
+    }
+
+    if (activeTool === 'eraser') {
+      handleHoverErase(e);
+      return;
+    } else if (hoveredElementId) {
+      setHoveredElementId(null);
+    }
+    
     if (!stageRef.current) return;
     let pos = getRelativePointerPosition(stageRef.current);
     
@@ -668,7 +852,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
     setElements((prev) => 
       prev.map((el) => {
         if (el.id === currentLineId) {
-          if (activeTool === 'line') {
+          if (activeTool === 'line' || activeTool === 'arrow') {
             let drawX = pos.x;
             let drawY = pos.y;
             if (orthoMode && el.points) {
@@ -682,6 +866,18 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
             }
             return { ...el, points: [el.points![0], el.points![1], drawX, drawY] };
           } else if (activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'cloud') {
+            if (activeTool === 'freehand' && orthoMode && el.points && el.points.length >= 2) {
+              const startX = el.points[0];
+              const startY = el.points[1];
+              let drawX = pos.x;
+              let drawY = pos.y;
+              if (Math.abs(drawX - startX) > Math.abs(drawY - startY)) {
+                drawY = startY;
+              } else {
+                drawX = startX;
+              }
+              return { ...el, points: [startX, startY, drawX, drawY] };
+            }
             return { ...el, points: [...(el.points || []), pos.x, pos.y] };
           } else if (activeTool === 'rectangle') {
             return { ...el, width: pos.x - el.x, height: pos.y - el.y };
@@ -700,10 +896,19 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
   };
 
   const handleMouseUp = (e: Konva.KonvaEventObject<MouseEvent>) => {
-    if (e.evt.button === 1) {
+    if (isPanningRef.current && (e.evt.button === 1 || e.evt.button === 0)) {
+      isPanningRef.current = false;
       setIsPanning(false);
-      return;
+      lastPanPosRef.current = null;
+      
+      // Only return early if we are NOT actively drawing. 
+      // If we are drawing (e.g. released left click while holding spacebar), 
+      // we must proceed to finish the stroke to avoid state leaks!
+      if (!isDrawing) {
+        return;
+      }
     }
+
     if (activeTool === 'polyline' || activeTool === 'leader' || activeTool === 'area' || activeTool === 'dimension') return;
     if (isDrawing && currentLineId) {
       const currentElements = useCanvasState.getState().elements;
@@ -806,6 +1011,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         ref={stageRef}
         width={dimensions.width}
         height={dimensions.height}
+        pixelRatio={typeof window !== 'undefined' ? Math.max(window.devicePixelRatio || 1, 2) : 2}
         scaleX={stageScale}
         scaleY={stageScale * Math.cos(stagePitch * Math.PI / 180)}
         x={stagePos.x}
@@ -816,7 +1022,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onDblClick={handleDblClick}
-        draggable={activeTool === 'select' || isPanning}
+        draggable={activeTool === 'select' && !isSpacebarDown}
         onDragEnd={(e) => {
           if (e.target === stageRef.current) {
             setStagePos({ x: e.target.x(), y: e.target.y() });
@@ -833,6 +1039,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
           />
           <DrawingLayer 
             onOpenContextMenu={(x, y, id) => setContextMenu({ x, y, elementId: id })} 
+            hoveredElementId={hoveredElementId}
           />
           <Group id="ui-group">
           <RemoteCursorsLayer cursors={remoteCursors} />
@@ -845,6 +1052,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
             />
           )}
           <OverlayLayer />
+          <InlineCropOverlay projectId={projectId} />
           
           {/* Snapping Indicator Layer */}
           <Group listening={false}>
@@ -959,6 +1167,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
 
       {/* Visual Overlays */}
       <UcsIcon />
+      <OnlineUsersWidget remoteCursors={remoteCursors} />
 
       {/* Canvas Element Right-Click Context Menu */}
       {contextMenu && (
