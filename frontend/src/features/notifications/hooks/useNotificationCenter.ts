@@ -64,7 +64,7 @@ export const useNotificationCenter = () => {
         if (isDesktopEnabled) {
           try {
             new Notification(item.title || 'ENG PLANNER', {
-              body: item.message,
+              body: item.body,
               icon: '/favicon.ico',
               tag: item.id
             });

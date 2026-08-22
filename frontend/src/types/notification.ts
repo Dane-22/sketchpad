@@ -42,5 +42,6 @@ export interface NotificationPreference {
   aiPushEnabled: boolean;
   commentPushEnabled: boolean;
   soundEnabled: boolean;
+  desktopEnabled?: boolean;
   mentionsOnly: boolean;
 }
