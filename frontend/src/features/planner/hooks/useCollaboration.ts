@@ -26,24 +26,32 @@ export const useCollaboration = (projectId?: string) => {
   useEffect(() => {
     socket.connect();
 
-    if (projectId) {
+    const handleConnect = () => {
+      if (projectId) {
+        socket.emit('join-project', projectId);
+      }
+    };
+
+    socket.on('connect', handleConnect);
+
+    if (projectId && socket.connected) {
       socket.emit('join-project', projectId);
     }
 
     socket.on('elements-changed', (elements) => {
-      setElements(elements, false, true, false);
+      setElements(elements, true, true, false);
     });
 
     socket.on('element-added', (element) => {
-      addElement(element, false, true);
+      addElement(element, true, true);
     });
 
     socket.on('element-updated', ({ id, updates }) => {
-      updateElement(id, updates, false, true);
+      updateElement(id, updates, true, true);
     });
 
     socket.on('element-removed', (id) => {
-      removeElement(id, false, true);
+      removeElement(id, true, true);
     });
 
     socket.on('cursor-moved', (cursor: RemoteCursor) => {
@@ -65,6 +73,7 @@ export const useCollaboration = (projectId?: string) => {
       if (projectId) {
         socket.emit('leave-project', projectId);
       }
+      socket.off('connect', handleConnect);
       socket.off('elements-changed');
       socket.off('element-added');
       socket.off('element-updated');

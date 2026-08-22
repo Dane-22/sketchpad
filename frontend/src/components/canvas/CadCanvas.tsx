@@ -263,45 +263,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
     });
   };
 
-  const handleHoverErase = useCallback((e: Konva.KonvaEventObject<MouseEvent | TouchEvent>) => {
-    if (activeTool !== 'eraser') {
-      if (hoveredElementId) setHoveredElementId(null);
-      return;
-    }
-    
-    const stage = e.target.getStage();
-    if (!stage) return;
-    const pointerPos = stage.getPointerPosition();
-    if (!pointerPos) return;
 
-    const shape = stage.getIntersection(pointerPos);
-    
-    if (shape) {
-      let node: any = shape;
-      let elementId = null;
-      while (node) {
-        const id = node.id();
-        if (id && elements.some(el => el.id === id)) {
-          elementId = id;
-          break;
-        }
-        node = node.parent;
-      }
-
-      if (elementId) {
-        if (eraserMode === 'hover') {
-          removeElement(elementId);
-          setHoveredElementId(null);
-        } else {
-          setHoveredElementId(elementId);
-        }
-      } else {
-        if (hoveredElementId) setHoveredElementId(null);
-      }
-    } else {
-      if (hoveredElementId) setHoveredElementId(null);
-    }
-  }, [activeTool, elements, removeElement, eraserMode, hoveredElementId]);
 
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
     // Handle middle mouse button or spacebar+left-click for panning
@@ -407,8 +369,8 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
       const newElement: CanvasElement = {
         id,
         type: 'highlighter',
-        x: pos.x,
-        y: pos.y,
+        x: 0,
+        y: 0,
         points: [pos.x, pos.y],
         stroke: highlighterColor || '#ffe600',
         strokeWidth: (highlighterWidth || 16) / stageScale,
@@ -428,8 +390,8 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
       const newElement: CanvasElement = {
         id,
         type: 'cloud',
-        x: pos.x,
-        y: pos.y,
+        x: 0,
+        y: 0,
         points: [pos.x, pos.y],
         stroke: '#ff9900',
         strokeWidth: 2.5 / stageScale,
@@ -467,8 +429,8 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         const newElement: CanvasElement = {
           id,
           type: 'callout',
-          x: pos.x,
-          y: pos.y,
+          x: 0,
+          y: 0,
           points: [pos.x, pos.y, pos.x, pos.y],
           stroke: '#00e5ff',
           strokeWidth: 2 / stageScale,
@@ -488,8 +450,8 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
       const newElement: CanvasElement = {
         id,
         type: activeTool,
-        x: pos.x,
-        y: pos.y,
+        x: (activeTool === 'line' || activeTool === 'arrow' || activeTool === 'freehand') ? 0 : pos.x,
+        y: (activeTool === 'line' || activeTool === 'arrow' || activeTool === 'freehand') ? 0 : pos.y,
         points: (activeTool === 'line' || activeTool === 'arrow' || activeTool === 'freehand') ? [pos.x, pos.y] : undefined,
         width: activeTool === 'rectangle' ? 0 : undefined,
         height: activeTool === 'rectangle' ? 0 : undefined,
@@ -640,8 +602,8 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
           const newElement: CanvasElement = {
             id,
             type: activeTool,
-            x: pos.x,
-            y: pos.y,
+            x: (activeTool === 'line' || activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'cloud') ? 0 : pos.x,
+            y: (activeTool === 'line' || activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'cloud') ? 0 : pos.y,
             points: (activeTool === 'line' || activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'cloud') ? [pos.x, pos.y] : undefined,
             width: activeTool === 'rectangle' ? 0 : undefined,
             height: activeTool === 'rectangle' ? 0 : undefined,
@@ -737,10 +699,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
       return; // Block drawing tools from processing during pan
     }
 
-    if (activeTool === 'eraser') {
-      handleHoverErase(e);
-      return;
-    } else if (hoveredElementId) {
+    if (hoveredElementId) {
       setHoveredElementId(null);
     }
     

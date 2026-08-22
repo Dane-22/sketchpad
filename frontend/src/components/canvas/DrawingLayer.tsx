@@ -49,14 +49,9 @@ const KonvaImageElement = ({ el, props, activeTool, isSelected, isHovered }: { e
     <KonvaImage
       image={imageObj}
       key={el.id}
-      x={el.x}
-      y={el.y}
       width={el.width || imageObj.width}
       height={el.height || imageObj.height}
       opacity={el.opacity !== undefined ? el.opacity : 1}
-      scaleX={el.scaleX}
-      scaleY={el.scaleY}
-      rotation={el.rotation}
       perfectDrawEnabled={true}
       listening={activeTool === 'select' || activeTool === 'eraser'}
       {...props}
@@ -149,6 +144,14 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu, hoveredE
   }, [selectedElementIds, elements, activeTool]);
 
   const handlePointerEnter = (id: string) => {
+    if (activeTool === 'eraser') {
+      const eraserMode = useCanvasState.getState().eraserMode;
+      if (eraserMode === 'hover') {
+        removeElement(id);
+        setHoveredId(null);
+        return;
+      }
+    }
     if (activeTool === 'eraser' || activeTool === 'select') {
       setHoveredId(id);
     }
@@ -190,6 +193,11 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu, hoveredE
     return {
       id: el.id,
       name: 'element',
+      x: el.x || 0,
+      y: el.y || 0,
+      rotation: el.rotation || 0,
+      scaleX: el.scaleX || 1,
+      scaleY: el.scaleY || 1,
       onPointerEnter: () => handlePointerEnter(el.id),
       onPointerLeave: handlePointerLeave,
       onClick: (e: Konva.KonvaEventObject<MouseEvent>) => { e.cancelBubble = true; handleClick(e, el.id); },
@@ -358,15 +366,10 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu, hoveredE
           return (
             <Rect
               key={el.id}
-              x={el.x}
-              y={el.y}
               width={el.width || 0}
               height={el.height || 0}
               strokeWidth={el.strokeWidth || 2}
               hitStrokeWidth={10}
-              scaleX={el.scaleX}
-              scaleY={el.scaleY}
-              rotation={el.rotation}
               {...props}
             />
           );
@@ -374,14 +377,9 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu, hoveredE
           return (
             <Circle
               key={el.id}
-              x={el.x}
-              y={el.y}
               radius={el.radius || 0}
               strokeWidth={el.strokeWidth || 2}
               hitStrokeWidth={10}
-              scaleX={el.scaleX}
-              scaleY={el.scaleY}
-              rotation={el.rotation}
               {...props}
             />
           );
@@ -389,22 +387,17 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu, hoveredE
           return (
             <Arc
               key={el.id}
-              x={el.x}
-              y={el.y}
               innerRadius={el.innerRadius || 0}
               outerRadius={el.outerRadius || 0}
               angle={el.angle || 0}
               strokeWidth={el.strokeWidth || 2}
               hitStrokeWidth={10}
-              scaleX={el.scaleX}
-              scaleY={el.scaleY}
-              rotation={el.rotation}
               {...props}
             />
           );
         } else if (el.type === 'symbol') {
           return (
-            <Group key={el.id} x={el.x} y={el.y} scaleX={el.scaleX} scaleY={el.scaleY} rotation={el.rotation} {...props}>
+            <Group key={el.id} {...props}>
               <Path
                 data={el.svgData || ''}
                 strokeWidth={el.strokeWidth || 2}
@@ -418,14 +411,9 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu, hoveredE
           return (
             <Text
               key={el.id}
-              x={el.x}
-              y={el.y}
               text={el.text || ''}
               fontSize={16}
               fill={stroke}
-              scaleX={el.scaleX}
-              scaleY={el.scaleY}
-              rotation={el.rotation}
               onDblClick={(e) => {
                 e.cancelBubble = true;
                 if (activeTool === 'select') {
@@ -523,7 +511,7 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu, hoveredE
           const date = el.stampDate || new Date().toLocaleDateString();
 
           return (
-            <Group key={el.id} x={el.x} y={el.y} rotation={el.rotation || 0} scaleX={el.scaleX} scaleY={el.scaleY} {...props}>
+            <Group key={el.id} {...props}>
               {/* Outer Double Border */}
               <Rect
                 x={0}

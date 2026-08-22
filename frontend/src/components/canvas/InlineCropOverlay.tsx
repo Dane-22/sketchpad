@@ -33,8 +33,8 @@ export const InlineCropOverlay: React.FC<InlineCropOverlayProps> = ({ projectId 
       setRectBounds({
         x: targetElement.x,
         y: targetElement.y,
-        width: targetElement.width || 100,
-        height: targetElement.height || 100
+        width: (targetElement.width || 100) * (targetElement.scaleX || 1),
+        height: (targetElement.height || 100) * (targetElement.scaleY || 1)
       });
     }
     if (!targetElement) {
@@ -73,14 +73,18 @@ export const InlineCropOverlay: React.FC<InlineCropOverlayProps> = ({ projectId 
           x: (rectBounds.x - targetElement.x) / (targetElement.scaleX || 1),
           y: (rectBounds.y - targetElement.y) / (targetElement.scaleY || 1),
           width: rectBounds.width / (targetElement.scaleX || 1),
-          height: rectBounds.height / (targetElement.scaleY || 1)
+          height: rectBounds.height / (targetElement.scaleY || 1),
+          targetWidth: targetElement.width,
+          targetHeight: targetElement.height
         };
       } else if (cropMode === 'freehand' && activeFreehandPoints.length > 2) {
         cropData = {
           points: activeFreehandPoints.map(p => ({
             x: (p.x - targetElement.x) / (targetElement.scaleX || 1),
             y: (p.y - targetElement.y) / (targetElement.scaleY || 1)
-          }))
+          })),
+          targetWidth: targetElement.width,
+          targetHeight: targetElement.height
         };
       } else if (cropMode === 'image_eraser' && activeEraserStrokes.length > 0) {
         cropData = {
@@ -95,7 +99,9 @@ export const InlineCropOverlay: React.FC<InlineCropOverlayProps> = ({ projectId 
               }
             })
           ),
-          brushSize: brushSize / (((targetElement.scaleX || 1) + (targetElement.scaleY || 1)) / 2)
+          brushSize: brushSize / (((targetElement.scaleX || 1) + (targetElement.scaleY || 1)) / 2),
+          targetWidth: targetElement.width,
+          targetHeight: targetElement.height
         };
       } else {
         stopCropping();
@@ -218,8 +224,8 @@ export const InlineCropOverlay: React.FC<InlineCropOverlayProps> = ({ projectId 
           <Rect
             x={targetElement.x}
             y={targetElement.y}
-            width={targetElement.width}
-            height={targetElement.height}
+            width={targetElement.width! * (targetElement.scaleX || 1)}
+            height={targetElement.height! * (targetElement.scaleY || 1)}
             fill="transparent"
             onMouseDown={(e) => {
               // Prevent event from bubbling to stage and causing drag
@@ -268,7 +274,7 @@ export const InlineCropOverlay: React.FC<InlineCropOverlayProps> = ({ projectId 
 
       {cropMode === 'image_eraser' && (
         <Group>
-          <Group x={targetElement.x + 10} y={targetElement.y + 10}>
+          <Group x={targetElement.x} y={targetElement.y - 80}>
             <Html
               transform={true}
               divProps={{
@@ -303,8 +309,8 @@ export const InlineCropOverlay: React.FC<InlineCropOverlayProps> = ({ projectId 
           <Rect
             x={targetElement.x}
             y={targetElement.y}
-            width={targetElement.width}
-            height={targetElement.height}
+            width={targetElement.width! * (targetElement.scaleX || 1)}
+            height={targetElement.height! * (targetElement.scaleY || 1)}
             fill="transparent"
             onMouseDown={(e) => {
               e.cancelBubble = true;

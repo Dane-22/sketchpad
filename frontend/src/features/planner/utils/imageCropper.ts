@@ -1,7 +1,7 @@
 export const applyCropToImage = async (
   imageSrc: string,
   mode: 'rect' | 'freehand' | 'image_eraser',
-  cropData: { x?: number; y?: number; width?: number; height?: number; points?: {x: number, y: number}[]; strokes?: number[][]; brushSize?: number }
+  cropData: { x?: number; y?: number; width?: number; height?: number; points?: {x: number, y: number}[]; strokes?: number[][]; brushSize?: number; targetWidth?: number; targetHeight?: number; }
 ): Promise<{ dataUrl: string; width: number; height: number; dx: number; dy: number }> => {
   return new Promise((resolve, reject) => {
     const img = new window.Image();
@@ -17,27 +17,38 @@ export const applyCropToImage = async (
 
       let dx = 0;
       let dy = 0;
+      
+      const targetW = cropData.targetWidth || img.width;
+      const targetH = cropData.targetHeight || img.height;
+      const scaleX = img.width / targetW;
+      const scaleY = img.height / targetH;
 
       if (mode === 'rect') {
         if (cropData.width === undefined || cropData.height === undefined || cropData.x === undefined || cropData.y === undefined) {
           return reject(new Error('Missing crop dimensions'));
         }
-        canvas.width = cropData.width;
-        canvas.height = cropData.height;
+        
+        const srcX = cropData.x * scaleX;
+        const srcY = cropData.y * scaleY;
+        const srcW = cropData.width * scaleX;
+        const srcH = cropData.height * scaleY;
+
+        canvas.width = srcW;
+        canvas.height = srcH;
         
         dx = cropData.x;
         dy = cropData.y;
 
         ctx.drawImage(
           img,
-          cropData.x,
-          cropData.y,
-          cropData.width,
-          cropData.height,
+          srcX,
+          srcY,
+          srcW,
+          srcH,
           0,
           0,
-          cropData.width,
-          cropData.height
+          srcW,
+          srcH
         );
       } else if (mode === 'freehand' && cropData.points && cropData.points.length > 0) {
         let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -51,21 +62,24 @@ export const applyCropToImage = async (
         const w = maxX - minX;
         const h = maxY - minY;
         
-        canvas.width = w;
-        canvas.height = h;
+        const srcW = w * scaleX;
+        const srcH = h * scaleY;
+        
+        canvas.width = srcW;
+        canvas.height = srcH;
         
         dx = minX;
         dy = minY;
         
         ctx.beginPath();
         cropData.points.forEach((p, i) => {
-          if (i === 0) ctx.moveTo(p.x - minX, p.y - minY);
-          else ctx.lineTo(p.x - minX, p.y - minY);
+          if (i === 0) ctx.moveTo((p.x - minX) * scaleX, (p.y - minY) * scaleY);
+          else ctx.lineTo((p.x - minX) * scaleX, (p.y - minY) * scaleY);
         });
         ctx.closePath();
         
         ctx.clip();
-        ctx.drawImage(img, -minX, -minY, img.width, img.height);
+        ctx.drawImage(img, -minX * scaleX, -minY * scaleY, img.width, img.height);
       } else if (mode === 'image_eraser' && cropData.strokes) {
         canvas.width = img.width;
         canvas.height = img.height;
@@ -80,12 +94,12 @@ export const applyCropToImage = async (
         cropData.strokes.forEach(stroke => {
           if (stroke.length < 2) return;
           ctx.beginPath();
-          ctx.moveTo(stroke[0], stroke[1]);
+          ctx.moveTo(stroke[0] * scaleX, stroke[1] * scaleY);
           if (stroke.length === 2) {
-            ctx.lineTo(stroke[0], stroke[1]);
+            ctx.lineTo(stroke[0] * scaleX, stroke[1] * scaleY);
           } else {
             for (let i = 2; i < stroke.length; i += 2) {
-              ctx.lineTo(stroke[i], stroke[i+1]);
+              ctx.lineTo(stroke[i] * scaleX, stroke[i+1] * scaleY);
             }
           }
           ctx.stroke();
@@ -99,8 +113,8 @@ export const applyCropToImage = async (
 
       resolve({
         dataUrl: canvas.toDataURL('image/png'),
-        width: canvas.width,
-        height: canvas.height,
+        width: mode === 'rect' ? cropData.width! : (mode === 'freehand' ? canvas.width / scaleX : targetW),
+        height: mode === 'rect' ? cropData.height! : (mode === 'freehand' ? canvas.height / scaleY : targetH),
         dx,
         dy
       });

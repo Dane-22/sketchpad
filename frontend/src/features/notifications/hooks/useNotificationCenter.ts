@@ -57,6 +57,22 @@ export const useNotificationCenter = () => {
           playNotificationChime('default');
         }
       }
+
+      // Show native desktop alert if permitted and push worker didn't catch it
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        const isDesktopEnabled = preferences?.desktopEnabled !== false;
+        if (isDesktopEnabled) {
+          try {
+            new Notification(item.title || 'ENG PLANNER', {
+              body: item.message,
+              icon: '/favicon.ico',
+              tag: item.id
+            });
+          } catch (e) {
+            console.warn('Failed to show native desktop notification:', e);
+          }
+        }
+      }
     };
 
     socket.on('notification-received', handleNotificationReceived);

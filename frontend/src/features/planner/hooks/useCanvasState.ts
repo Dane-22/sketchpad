@@ -196,8 +196,14 @@ export const useCanvasState = create<CanvasStateStore>()(
       }),
       undo: () => set((state) => {
         if (state.historyIndex > 0) {
+          const newElements = state.history[state.historyIndex - 1];
+          if (state.activeProjectId) {
+            socket.emit('elements-changed', { projectId: state.activeProjectId, elements: newElements });
+          } else {
+            socket.emit('elements-changed', newElements);
+          }
           return {
-            elements: state.history[state.historyIndex - 1],
+            elements: newElements,
             historyIndex: state.historyIndex - 1
           };
         }
@@ -205,8 +211,14 @@ export const useCanvasState = create<CanvasStateStore>()(
       }),
       redo: () => set((state) => {
         if (state.historyIndex < state.history.length - 1) {
+          const newElements = state.history[state.historyIndex + 1];
+          if (state.activeProjectId) {
+            socket.emit('elements-changed', { projectId: state.activeProjectId, elements: newElements });
+          } else {
+            socket.emit('elements-changed', newElements);
+          }
           return {
-            elements: state.history[state.historyIndex + 1],
+            elements: newElements,
             historyIndex: state.historyIndex + 1
           };
         }
