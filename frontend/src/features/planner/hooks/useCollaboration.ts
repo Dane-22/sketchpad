@@ -14,8 +14,9 @@ export interface RemoteCursor {
 
 export const useCollaboration = (projectId?: string) => {
   const [remoteCursors, setRemoteCursors] = useState<Record<string, RemoteCursor>>({});
-  const { setElements, addElement, updateElement, removeElement, setActiveProjectId, textColor } = useCanvasState();
+  const { setElements, addElement, updateElement, removeElement, setActiveProjectId } = useCanvasState();
   const lastEmitRef = useRef<number>(0);
+  const lastEmitPosRef = useRef({ x: 0, y: 0 });
 
   useEffect(() => {
     if (projectId) {
@@ -29,13 +30,25 @@ export const useCollaboration = (projectId?: string) => {
     const handleConnect = () => {
       if (projectId) {
         socket.emit('join-project', projectId);
+        
+        // Announce our presence immediately (so existing users see us)
+        const user = useAuthStore.getState().user;
+        const color = useCanvasState.getState().textColor;
+        socket.emit('cursor-moved', { 
+          projectId, 
+          x: lastEmitPosRef.current.x, 
+          y: lastEmitPosRef.current.y,
+          userId: user?.id,
+          userName: user?.fullName || localStorage.getItem('user_name') || 'Engineer',
+          color
+        });
       }
     };
 
     socket.on('connect', handleConnect);
 
     if (projectId && socket.connected) {
-      socket.emit('join-project', projectId);
+      handleConnect();
     }
 
     socket.on('elements-changed', (elements) => {
@@ -69,6 +82,20 @@ export const useCollaboration = (projectId?: string) => {
       });
     });
 
+    socket.on('user-joined', () => {
+      // Announce our presence to the newly joined user
+      const user = useAuthStore.getState().user;
+      const color = useCanvasState.getState().textColor;
+      socket.emit('cursor-moved', { 
+        projectId, 
+        x: lastEmitPosRef.current.x, 
+        y: lastEmitPosRef.current.y,
+        userId: user?.id,
+        userName: user?.fullName || localStorage.getItem('user_name') || 'Engineer',
+        color
+      });
+    });
+
     return () => {
       if (projectId) {
         socket.emit('leave-project', projectId);
@@ -80,15 +107,18 @@ export const useCollaboration = (projectId?: string) => {
       socket.off('element-removed');
       socket.off('cursor-moved');
       socket.off('user-disconnected');
+      socket.off('user-joined');
       socket.disconnect();
     };
   }, [projectId, setElements, addElement, updateElement, removeElement]);
 
   const emitCursorMove = useCallback((x: number, y: number) => {
+    lastEmitPosRef.current = { x, y };
     const now = performance.now();
     if (now - lastEmitRef.current > 40) {
       lastEmitRef.current = now;
       const user = useAuthStore.getState().user;
+      const color = useCanvasState.getState().textColor;
       
       socket.emit('cursor-moved', { 
         projectId, 
@@ -96,10 +126,10 @@ export const useCollaboration = (projectId?: string) => {
         y,
         userId: user?.id,
         userName: user?.fullName || localStorage.getItem('user_name') || 'Engineer',
-        color: textColor
+        color
       });
     }
-  }, [projectId, textColor]);
+  }, [projectId]);
 
   return { remoteCursors, emitCursorMove };
 };

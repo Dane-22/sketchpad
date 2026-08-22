@@ -31,7 +31,7 @@ describe('Auth Endpoints', () => {
                 fullName: 'Test User'
             });
             expect(response.status).toBe(201);
-            expect(response.body).toHaveProperty('token');
+            expect(response.body).toHaveProperty('status', 'PENDING');
             expect(response.body.user).toHaveProperty('id', 'user-123');
             expect(response.body.user).toHaveProperty('email', 'test@example.com');
             // Verify Prisma was called correctly

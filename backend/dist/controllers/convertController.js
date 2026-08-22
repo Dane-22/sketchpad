@@ -1,9 +1,42 @@
 "use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.uploadAndConvert = void 0;
+exports.extractPlanPreview = exports.uploadAndConvert = void 0;
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const child_process_1 = require("child_process");
@@ -61,17 +94,17 @@ const uploadAndConvert = async (req, res) => {
                 return res.status(500).json({ error: 'Failed to parse DXF: ' + err.message });
             }
         }
-        if (ext !== '.dwg' && ext !== '.skb') {
+        if (ext !== '.dwg' && ext !== '.skb' && ext !== '.skp') {
             if (fs_1.default.existsSync(uploadedFilePath))
                 fs_1.default.unlinkSync(uploadedFilePath);
             return res.status(400).json({ error: 'Unsupported file format.' });
         }
-        if (ext === '.skb') {
+        if (ext === '.skb' || ext === '.skp') {
             if (fs_1.default.existsSync(uploadedFilePath))
                 fs_1.default.unlinkSync(uploadedFilePath);
-            // NOTE: SketchUp files require the SketchUp C API. ODA doesn't support SKB natively without the BIM SDK.
-            // We'll return an error explaining this limitation for SKB in Option 1.
-            return res.status(400).json({ error: '.skb conversion requires Autodesk Forge or SKP SDK. Only .dwg is supported by ODA File Converter locally.' });
+            // NOTE: SketchUp files require the SketchUp C API. ODA doesn't support SKP/SKB natively without the BIM SDK.
+            // We'll return an informative message directing user to upload via Canvas File Uploader for interactive 3D model blueprinting.
+            return res.status(400).json({ error: '.skp/.skb conversion requires Autodesk Forge or SKP SDK. You can upload .skp files directly via "Upload File" to place an interactive 3D model blueprint card on your canvas.' });
         }
         // --- DWG Conversion using ODA File Converter ---
         // Create unique temp directories for this job
@@ -113,7 +146,6 @@ const uploadAndConvert = async (req, res) => {
                         resolve();
                     }
                     catch (err) {
-                        res.status(500).json({ error: err.message });
                         reject(err);
                     }
                     finally {
@@ -129,7 +161,54 @@ const uploadAndConvert = async (req, res) => {
     }
     catch (error) {
         console.error("Upload error:", error);
-        res.status(500).json({ error: 'Server error during upload.' });
+        if (!res.headersSent) {
+            res.status(500).json({ error: error.message || 'Server error during upload.' });
+        }
     }
 };
 exports.uploadAndConvert = uploadAndConvert;
+/**
+ * Extracts real embedded plan image from .dwg or .skp file.
+ */
+const extractPlanPreview = async (req, res) => {
+    try {
+        if (!req.file) {
+            res.status(400).json({ error: 'No file uploaded.' });
+            return;
+        }
+        const { extractPlanImageFromFile } = await Promise.resolve().then(() => __importStar(require('../utils/cadThumbnailExtractor')));
+        const extracted = extractPlanImageFromFile(req.file.path);
+        if (extracted && extracted.buffer) {
+            const uniqueName = `extracted-${Date.now()}-${crypto_1.default.randomBytes(4).toString('hex')}.${extracted.mimeType === 'image/png' ? 'png' : extracted.mimeType === 'image/jpeg' ? 'jpg' : 'bmp'}`;
+            const uploadsDir = path_1.default.join(__dirname, '..', '..', 'uploads', 'canvas');
+            if (!fs_1.default.existsSync(uploadsDir))
+                fs_1.default.mkdirSync(uploadsDir, { recursive: true });
+            const savePath = path_1.default.join(uploadsDir, uniqueName);
+            fs_1.default.writeFileSync(savePath, extracted.buffer);
+            if (fs_1.default.existsSync(req.file.path))
+                fs_1.default.unlinkSync(req.file.path);
+            res.json({
+                success: true,
+                hasRealThumbnail: true,
+                previewUrl: `/uploads/canvas/${uniqueName}`,
+                mimeType: extracted.mimeType,
+                size: extracted.buffer.length
+            });
+            return;
+        }
+        if (fs_1.default.existsSync(req.file.path))
+            fs_1.default.unlinkSync(req.file.path);
+        res.json({
+            success: false,
+            hasRealThumbnail: false,
+            message: 'No embedded raster thumbnail found in file structure.'
+        });
+    }
+    catch (err) {
+        console.error('Error extracting plan preview:', err);
+        if (req.file && fs_1.default.existsSync(req.file.path))
+            fs_1.default.unlinkSync(req.file.path);
+        res.status(500).json({ error: err.message || 'Failed to extract preview.' });
+    }
+};
+exports.extractPlanPreview = extractPlanPreview;

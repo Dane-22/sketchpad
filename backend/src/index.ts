@@ -60,6 +60,7 @@ io.on('connection', (socket) => {
       const room = `project-${projectId}`;
       socket.join(room);
       console.log(`Socket ${socket.id} joined ${room}`);
+      socket.to(room).emit('user-joined', socket.id);
     }
   });
 
