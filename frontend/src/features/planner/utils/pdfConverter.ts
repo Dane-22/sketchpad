@@ -97,11 +97,35 @@ export function convertImageFileToDataUrl(file: File): Promise<{ dataUrl: string
       const dataUrl = e.target?.result as string;
       const img = new Image();
       img.onload = () => {
+        const origW = img.naturalWidth || img.width;
+        const origH = img.naturalHeight || img.height;
+        let scale = 1;
+        if (origW > 0 && origW < 1500) {
+          scale = 1500 / origW;
+        }
+        if (scale > 1) {
+          const canvas = document.createElement('canvas');
+          canvas.width = origW * scale;
+          canvas.height = origH * scale;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.imageSmoothingEnabled = false; // Sharp upscale
+            ctx.scale(scale, scale);
+            ctx.drawImage(img, 0, 0);
+            resolve({
+              dataUrl: canvas.toDataURL('image/webp', 0.95),
+              file,
+              width: canvas.width,
+              height: canvas.height
+            });
+            return;
+          }
+        }
         resolve({
           dataUrl,
           file,
-          width: img.naturalWidth || img.width,
-          height: img.naturalHeight || img.height
+          width: origW,
+          height: origH
         });
       };
       img.onerror = (err) => reject(err);

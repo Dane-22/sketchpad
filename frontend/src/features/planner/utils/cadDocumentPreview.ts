@@ -101,11 +101,21 @@ function loadImageBlob(blob: Blob): Promise<{ dataUrl: string; width: number; he
     const img = new Image();
     img.onload = () => {
       URL.revokeObjectURL(url);
+      const origW = img.naturalWidth || img.width;
+      const origH = img.naturalHeight || img.height;
+      let scale = 1;
+      if (origW > 0 && origW < 1500) {
+        scale = 1500 / origW;
+      }
       const canvas = document.createElement('canvas');
-      canvas.width = img.naturalWidth || img.width;
-      canvas.height = img.naturalHeight || img.height;
+      canvas.width = origW * scale;
+      canvas.height = origH * scale;
       const ctx = canvas.getContext('2d');
       if (ctx) {
+        if (scale > 1) {
+          ctx.imageSmoothingEnabled = false;
+        }
+        ctx.scale(scale, scale);
         ctx.drawImage(img, 0, 0);
         resolve({
           dataUrl: canvas.toDataURL('image/webp', 0.95),
@@ -114,7 +124,7 @@ function loadImageBlob(blob: Blob): Promise<{ dataUrl: string; width: number; he
         });
       } else {
         const reader = new FileReader();
-        reader.onload = () => resolve({ dataUrl: reader.result as string, width: img.naturalWidth, height: img.naturalHeight });
+        reader.onload = () => resolve({ dataUrl: reader.result as string, width: origW, height: origH });
         reader.readAsDataURL(blob);
       }
     };

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { CanvasElement, ToolType, CanvasLayer } from '../../../types/canvas';
 import { socket } from '../utils/socket';
+import { useAuthStore } from '../../auth/store/useAuthStore';
 
 interface CanvasStateStore {
   elements: CanvasElement[];
@@ -28,8 +29,6 @@ interface CanvasStateStore {
   selectedElementIds: string[];
   customSymbols: { id: string; name: string; elements: CanvasElement[] }[];
   clipboard: CanvasElement | null;
-  textColor: string;
-  unitMode: 'metric' | 'imperial';
   pendingCoordinate: { x: number; y: number; isRelative: boolean } | null;
   activeProjectId: string | null;
   setActiveProjectId: (id: string | null) => void;
@@ -49,6 +48,7 @@ interface CanvasStateStore {
   stopCropping: () => void;
   
   setElements: (elements: CanvasElement[] | ((prev: CanvasElement[]) => CanvasElement[]), commit?: boolean, isRemote?: boolean, broadcast?: boolean, projectId?: string) => void;
+  initializeElements: (elements: CanvasElement[]) => void;
   addElement: (element: CanvasElement, commit?: boolean, isRemote?: boolean, projectId?: string) => void;
   undo: () => void;
   redo: () => void;
@@ -90,8 +90,11 @@ interface CanvasStateStore {
   setCustomSymbols: (symbols: { id: string; name: string; elements: CanvasElement[] }[]) => void;
   setGroups: (groups: { id: string; elementIds: string[] }[]) => void;
   setClipboard: (el: CanvasElement | null) => void;
+  textColor: string;
   setTextColor: (color: string) => void;
-  setUnitMode: (mode: 'metric' | 'imperial') => void;
+  userColor: string;
+  setUserColor: (color: string) => void;
+  unitMode: 'metric' | 'imperial';
   setPendingCoordinate: (coord: { x: number; y: number; isRelative: boolean } | null) => void;
   parseCommand: (input: string) => void;
   spawnStressTest: () => void;
@@ -125,7 +128,8 @@ export const useCanvasState = create<CanvasStateStore>()(
       selectedElementIds: [],
       customSymbols: [],
       clipboard: null,
-      textColor: '#ffffff',
+      textColor: '#FFFFFF',
+      userColor: '#ef4444',
       unitMode: 'metric',
       pendingCoordinate: null,
       activeProjectId: null,
@@ -164,6 +168,11 @@ export const useCanvasState = create<CanvasStateStore>()(
         }
         return { elements: newElements };
       }),
+      initializeElements: (elements) => set({
+        elements,
+        history: [elements],
+        historyIndex: 0
+      }),
       addElement: (element, commit = true, isRemote = false, projectId?: string) => set((state) => {
         if (state.elements.some(e => e.id === element.id)) {
           return state;
@@ -196,14 +205,41 @@ export const useCanvasState = create<CanvasStateStore>()(
       }),
       undo: () => set((state) => {
         if (state.historyIndex > 0) {
-          const newElements = state.history[state.historyIndex - 1];
-          if (state.activeProjectId) {
-            socket.emit('elements-changed', { projectId: state.activeProjectId, elements: newElements });
-          } else {
-            socket.emit('elements-changed', newElements);
+          const prevElements = state.history[state.historyIndex - 1];
+          const currentUserId = useAuthStore.getState().user?.id;
+          
+          const myPrevMap = new Map();
+          prevElements.forEach(e => {
+            if (!e.authorId || e.authorId === currentUserId) {
+              myPrevMap.set(e.id, e);
+            }
+          });
+          
+          const nextElements: CanvasElement[] = [];
+          
+          state.elements.forEach(currentEl => {
+            if (currentEl.authorId && currentEl.authorId !== currentUserId) {
+              nextElements.push(currentEl);
+            } else {
+              if (myPrevMap.has(currentEl.id)) {
+                nextElements.push(myPrevMap.get(currentEl.id)!);
+                myPrevMap.delete(currentEl.id);
+              }
+            }
+          });
+          
+          for (const prevEl of myPrevMap.values()) {
+            nextElements.push(prevEl);
           }
+          
+          if (state.activeProjectId) {
+            socket.emit('elements-changed', { projectId: state.activeProjectId, elements: nextElements });
+          } else {
+            socket.emit('elements-changed', nextElements);
+          }
+          
           return {
-            elements: newElements,
+            elements: nextElements,
             historyIndex: state.historyIndex - 1
           };
         }
@@ -211,14 +247,41 @@ export const useCanvasState = create<CanvasStateStore>()(
       }),
       redo: () => set((state) => {
         if (state.historyIndex < state.history.length - 1) {
-          const newElements = state.history[state.historyIndex + 1];
-          if (state.activeProjectId) {
-            socket.emit('elements-changed', { projectId: state.activeProjectId, elements: newElements });
-          } else {
-            socket.emit('elements-changed', newElements);
+          const nextSnapshot = state.history[state.historyIndex + 1];
+          const currentUserId = useAuthStore.getState().user?.id;
+          
+          const myNextMap = new Map();
+          nextSnapshot.forEach(e => {
+            if (!e.authorId || e.authorId === currentUserId) {
+              myNextMap.set(e.id, e);
+            }
+          });
+          
+          const nextElements: CanvasElement[] = [];
+          
+          state.elements.forEach(currentEl => {
+            if (currentEl.authorId && currentEl.authorId !== currentUserId) {
+              nextElements.push(currentEl);
+            } else {
+              if (myNextMap.has(currentEl.id)) {
+                nextElements.push(myNextMap.get(currentEl.id)!);
+                myNextMap.delete(currentEl.id);
+              }
+            }
+          });
+          
+          for (const nextEl of myNextMap.values()) {
+            nextElements.push(nextEl);
           }
+          
+          if (state.activeProjectId) {
+            socket.emit('elements-changed', { projectId: state.activeProjectId, elements: nextElements });
+          } else {
+            socket.emit('elements-changed', nextElements);
+          }
+          
           return {
-            elements: newElements,
+            elements: nextElements,
             historyIndex: state.historyIndex + 1
           };
         }
@@ -226,6 +289,15 @@ export const useCanvasState = create<CanvasStateStore>()(
       }),
       removeElement: (id, commit = true, isRemote = false, projectId?: string) => set((state) => {
         const targetProjectId = projectId || state.activeProjectId;
+        const el = state.elements.find(e => e.id === id);
+        if (!isRemote && el && el.authorId) {
+          const currentUser = useAuthStore.getState().user;
+          if (currentUser && el.authorId !== currentUser.id) {
+            // Cannot delete someone else's ink
+            return state;
+          }
+        }
+        
         const newElements = state.elements.filter(el => el.id !== id);
         
         if (!isRemote) {
@@ -249,11 +321,24 @@ export const useCanvasState = create<CanvasStateStore>()(
       }),
       removeElements: (ids, commit = true, isRemote = false, projectId?: string) => set((state) => {
         const targetProjectId = projectId || state.activeProjectId;
-        const idSet = new Set(ids);
+        
+        let validIds = ids;
+        if (!isRemote) {
+          const currentUser = useAuthStore.getState().user;
+          if (currentUser) {
+            validIds = ids.filter(id => {
+              const el = state.elements.find(e => e.id === id);
+              // Allow deletion if authorId is missing or if it matches the current user
+              return !el || !el.authorId || el.authorId === currentUser.id;
+            });
+          }
+        }
+        
+        const idSet = new Set(validIds);
         const newElements = state.elements.filter(el => !idSet.has(el.id));
         
         if (!isRemote) {
-          ids.forEach(id => socket.emit('element-removed', { projectId: targetProjectId, id }));
+          validIds.forEach(id => socket.emit('element-removed', { projectId: targetProjectId, id }));
         }
         
         if (commit) {
@@ -372,8 +457,11 @@ export const useCanvasState = create<CanvasStateStore>()(
         };
       }),
       updateElement: (id, updates, commit = true, isRemote = false, projectId?: string) => set((state) => {
-        const targetProjectId = projectId || state.activeProjectId;
-        const targetElement = state.elements.find(e => e.id === id);
+          const targetProjectId = projectId || state.activeProjectId;
+          const targetElement = state.elements.find(e => e.id === id);
+          if (!isRemote && targetElement && targetElement.authorId && targetElement.authorId !== useAuthStore.getState().user?.id) {
+            return state;
+          }
         const dx = updates.x !== undefined && targetElement ? updates.x - targetElement.x : 0;
         const dy = updates.y !== undefined && targetElement ? updates.y - targetElement.y : 0;
 
@@ -447,6 +535,7 @@ export const useCanvasState = create<CanvasStateStore>()(
       setGroups: (groups) => set({ groups }),
       setClipboard: (el) => set({ clipboard: el }),
       setTextColor: (color) => set({ textColor: color }),
+      setUserColor: (color) => set({ userColor: color }),
       setPendingCoordinate: (coord) => set({ pendingCoordinate: coord }),
       parseCommand: (input: string) => set(() => {
         const cmd = input.trim().toUpperCase();
@@ -520,7 +609,7 @@ export const useCanvasState = create<CanvasStateStore>()(
           : [...state.selectedElementIds, id]
       })),
       setCustomSymbols: (symbols) => set({ customSymbols: symbols }),
-      setUnitMode: (mode) => set({ unitMode: mode }),
+      setUnitMode: (mode: 'metric' | 'imperial') => set({ unitMode: mode }),
       spawnStressTest: () => set((state) => {
         const newElements: CanvasElement[] = [];
         const types: CanvasElement['type'][] = ['line', 'arrow', 'text'];

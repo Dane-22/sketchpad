@@ -66,7 +66,7 @@ export default function PlannerWorkspace() {
         headers: { Authorization: `Bearer ${token}` }
       }).then(res => {
         const initialElements = res.data.canvasData?.elements || [];
-        setElements(initialElements, true, true);
+        useCanvasState.getState().initializeElements(initialElements);
         setIsProjectLoaded(true);
       }).catch(err => {
         console.error("Failed to load project", err);

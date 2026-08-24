@@ -33,7 +33,7 @@ export const useCollaboration = (projectId?: string) => {
         
         // Announce our presence immediately (so existing users see us)
         const user = useAuthStore.getState().user;
-        const color = useCanvasState.getState().textColor;
+        const color = useCanvasState.getState().userColor;
         socket.emit('cursor-moved', { 
           projectId, 
           x: lastEmitPosRef.current.x, 
@@ -52,19 +52,23 @@ export const useCollaboration = (projectId?: string) => {
     }
 
     socket.on('elements-changed', (elements) => {
-      setElements(elements, true, true, false);
+      setElements(elements, false, true, false);
     });
 
     socket.on('element-added', (element) => {
-      addElement(element, true, true);
+      addElement(element, false, true);
     });
 
     socket.on('element-updated', ({ id, updates }) => {
-      updateElement(id, updates, true, true);
+      updateElement(id, updates, false, true);
     });
 
     socket.on('element-removed', (id) => {
-      removeElement(id, true, true);
+      removeElement(id, false, true);
+    });
+
+    socket.on('color-assigned', (color: string) => {
+      useCanvasState.getState().setUserColor(color);
     });
 
     socket.on('cursor-moved', (cursor: RemoteCursor) => {
@@ -85,7 +89,7 @@ export const useCollaboration = (projectId?: string) => {
     socket.on('user-joined', () => {
       // Announce our presence to the newly joined user
       const user = useAuthStore.getState().user;
-      const color = useCanvasState.getState().textColor;
+      const color = useCanvasState.getState().userColor;
       socket.emit('cursor-moved', { 
         projectId, 
         x: lastEmitPosRef.current.x, 
@@ -118,7 +122,7 @@ export const useCollaboration = (projectId?: string) => {
     if (now - lastEmitRef.current > 40) {
       lastEmitRef.current = now;
       const user = useAuthStore.getState().user;
-      const color = useCanvasState.getState().textColor;
+      const color = useCanvasState.getState().userColor;
       
       socket.emit('cursor-moved', { 
         projectId, 

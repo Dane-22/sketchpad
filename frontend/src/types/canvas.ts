@@ -56,6 +56,7 @@ export interface CanvasElement {
   groupId?: string;
   topicId?: string; // Linked discussion / comment thread ID
   parentImageId?: string; // Bound to an underlying image / document sheet
+  authorId?: string; // The ID of the user who created this element
   stampType?: 'APPROVED' | 'REVISE & RESUBMIT' | 'FOR REVIEW' | 'REJECTED' | 'AS-BUILT' | 'HOLD';
   stampAuthor?: string;
   stampDate?: string;

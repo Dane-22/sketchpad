@@ -39,6 +39,15 @@ const io = new Server(httpServer, {
 // Pass socket server instance to notification service
 setSocketServer(io);
 
+const CURSOR_COLORS = [
+  '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#8b5cf6', '#d946ef', '#f43f5e',
+  '#dc2626', '#ea580c', '#ca8a04', '#16a34a', '#0891b2', '#2563eb', '#7c3aed', '#c026d3', '#e11d48',
+  '#f87171', '#fb923c', '#facc15', '#4ade80', '#22d3ee', '#60a5fa', '#a78bfa', '#e879f9', '#fb7185',
+  '#10b981', '#059669', '#34d399', '#14b8a6', '#0d9488', '#2dd4bf', '#6366f1', '#4f46e5', '#818cf8'
+];
+// Map projectId -> Map<socketId, color>
+const roomColors = new Map<string, Map<string, string>>();
+
 io.on('connection', (socket) => {
   console.log(`User connected: ${socket.id}`);
 
@@ -60,6 +69,16 @@ io.on('connection', (socket) => {
       const room = `project-${projectId}`;
       socket.join(room);
       console.log(`Socket ${socket.id} joined ${room}`);
+      
+      if (!roomColors.has(projectId)) {
+        roomColors.set(projectId, new Map());
+      }
+      const projectColors = roomColors.get(projectId)!;
+      const usedColors = new Set(projectColors.values());
+      const availableColor = CURSOR_COLORS.find(c => !usedColors.has(c)) || CURSOR_COLORS[0];
+      projectColors.set(socket.id, availableColor);
+      socket.emit('color-assigned', availableColor);
+      
       socket.to(room).emit('user-joined', socket.id);
     }
   });
@@ -68,6 +87,12 @@ io.on('connection', (socket) => {
     if (projectId) {
       const room = `project-${projectId}`;
       socket.leave(room);
+      
+      const projectColors = roomColors.get(projectId);
+      if (projectColors) {
+        projectColors.delete(socket.id);
+      }
+      
       console.log(`Socket ${socket.id} left ${room}`);
     }
   });
@@ -190,6 +215,13 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${socket.id}`);
+    
+    roomColors.forEach((colors, projectId) => {
+      if (colors.has(socket.id)) {
+        colors.delete(socket.id);
+      }
+    });
+
     socket.to(globalRoom).emit('user-disconnected', socket.id);
   });
 });

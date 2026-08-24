@@ -55,7 +55,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
     groups, setGroups, setSelectedElementIds,
     pendingCoordinate, setPendingCoordinate,
     activeTopicId, activeStampType, highlighterColor, highlighterWidth,
-    eraserMode
+    eraserMode, userColor
   } = useCanvasState();
 
   const { remoteCursors, emitCursorMove } = useCollaboration(projectId);
@@ -67,7 +67,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
   const [dimensionStep, setDimensionStep] = useState<number>(0);
 
   const currentUser = useAuthStore(state => state.user);
-  const defaultUserInkColor = currentUser ? getUserColor(currentUser.id) : '#00ffcc';
+  const defaultUserInkColor = userColor || '#00ffcc';
 
   const lastPanPosRef = useRef<{ x: number, y: number } | null>(null);
   const lastMiddleClickTimeRef = useRef<number>(0);
@@ -323,12 +323,13 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
     if (activeTool === 'text') {
       const id = Date.now().toString();
       const newElement: CanvasElement = {
+        authorId: currentUser?.id,
         id,
         type: 'text',
         x: pos.x,
         y: pos.y,
         text: '',
-        stroke: textColor === '#ffffff' ? defaultUserInkColor : textColor,
+        stroke: textColor?.toLowerCase() === '#ffffff' ? defaultUserInkColor : textColor,
         strokeWidth: 0,
         scaleX: 1 / stageScale,
         scaleY: 1 / stageScale,
@@ -343,6 +344,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
     if (activeTool === 'stamp') {
       const id = Date.now().toString();
       const newElement: CanvasElement = {
+        authorId: currentUser?.id,
         id,
         type: 'stamp',
         x: pos.x,
@@ -367,6 +369,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
       setCurrentLineId(id);
       
       const newElement: CanvasElement = {
+        authorId: currentUser?.id,
         id,
         type: 'highlighter',
         x: 0,
@@ -388,6 +391,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
       setCurrentLineId(id);
       
       const newElement: CanvasElement = {
+        authorId: currentUser?.id,
         id,
         type: 'cloud',
         x: 0,
@@ -427,6 +431,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         setActiveDimensionId(id);
         setDimensionStep(1);
         const newElement: CanvasElement = {
+        authorId: currentUser?.id,
           id,
           type: 'callout',
           x: 0,
@@ -448,6 +453,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
       setCurrentLineId(id);
       
       const newElement: CanvasElement = {
+        authorId: currentUser?.id,
         id,
         type: activeTool,
         x: (activeTool === 'line' || activeTool === 'arrow' || activeTool === 'freehand') ? 0 : pos.x,
@@ -459,7 +465,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         innerRadius: activeTool === 'arc' ? 0 : undefined,
         outerRadius: activeTool === 'arc' ? 0 : undefined,
         angle: activeTool === 'arc' ? 0 : undefined,
-        stroke: textColor === '#ffffff' ? defaultUserInkColor : textColor,
+        stroke: textColor?.toLowerCase() === '#ffffff' ? defaultUserInkColor : textColor,
         strokeWidth: 2 / stageScale,
         layerId: activeLayerId,
         topicId: activeTopicId || undefined
@@ -488,12 +494,13 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         const id = Date.now().toString();
         setActivePolylineId(id);
         const newElement: CanvasElement = {
+        authorId: currentUser?.id,
           id,
           type: activeTool,
           x: 0,
           y: 0,
           points: [pos.x, pos.y, pos.x, pos.y],
-          stroke: textColor === '#ffffff' ? defaultUserInkColor : textColor,
+          stroke: textColor?.toLowerCase() === '#ffffff' ? defaultUserInkColor : textColor,
           strokeWidth: 2 / stageScale,
           layerId: activeLayerId,
           topicId: activeTopicId || undefined
@@ -507,13 +514,14 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         setActiveDimensionId(id);
         setDimensionStep(1);
         const newElement: CanvasElement = {
+        authorId: currentUser?.id,
           id,
           type: 'dimension',
           x: 0,
           y: 0,
           // P1(x,y), P2(x,y), Offset(x,y)
           points: [pos.x, pos.y, pos.x, pos.y, pos.x, pos.y],
-          stroke: textColor === '#ffffff' ? defaultUserInkColor : textColor,
+          stroke: textColor?.toLowerCase() === '#ffffff' ? defaultUserInkColor : textColor,
           strokeWidth: 1 / stageScale,
           layerId: activeLayerId,
           topicId: activeTopicId || undefined,
@@ -600,6 +608,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
           setCurrentLineId(id);
           
           const newElement: CanvasElement = {
+        authorId: currentUser?.id,
             id,
             type: activeTool,
             x: (activeTool === 'line' || activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'cloud') ? 0 : pos.x,
@@ -641,6 +650,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
           const id = Date.now().toString();
           setActivePolylineId(id);
           const newElement: CanvasElement = {
+        authorId: currentUser?.id,
             id,
             type: activeTool,
             x: 0,
@@ -903,6 +913,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
       const data = JSON.parse(dataStr);
       if (data.type === 'symbol') {
         const newElement: CanvasElement = {
+        authorId: currentUser?.id,
           id: Date.now().toString(),
           type: 'symbol',
           x: pos.x,

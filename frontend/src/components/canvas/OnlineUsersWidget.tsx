@@ -3,12 +3,15 @@ import { useAuthStore } from '../../features/auth/store/useAuthStore';
 import { RemoteCursor } from '../../features/planner/hooks/useCollaboration';
 import { getUserColor } from '../../features/planner/utils/colors';
 
+import { useCanvasState } from '../../features/planner/hooks/useCanvasState';
+
 export interface OnlineUsersWidgetProps {
   remoteCursors: Record<string, RemoteCursor>;
 }
 
 export const OnlineUsersWidget: React.FC<OnlineUsersWidgetProps> = ({ remoteCursors }) => {
   const currentUser = useAuthStore((state) => state.user);
+  const myColor = useCanvasState((state) => state.userColor);
 
   const onlineUsers = useMemo(() => {
     const users = new Map<string, { name: string; color: string }>();
@@ -17,7 +20,7 @@ export const OnlineUsersWidget: React.FC<OnlineUsersWidgetProps> = ({ remoteCurs
     if (currentUser) {
       users.set('me', { 
         name: currentUser.fullName || 'You', 
-        color: getUserColor(currentUser.id || 'me') 
+        color: myColor
       });
     }
 
@@ -27,13 +30,13 @@ export const OnlineUsersWidget: React.FC<OnlineUsersWidgetProps> = ({ remoteCurs
       if (!users.has(id)) {
         users.set(id, {
           name: cursor.userName || 'Engineer',
-          color: getUserColor(id)
+          color: cursor.color || getUserColor(id)
         });
       }
     });
 
     return Array.from(users.values());
-  }, [remoteCursors, currentUser]);
+  }, [remoteCursors, currentUser, myColor]);
 
   return (
     <div className="absolute top-20 right-4 z-[999] pointer-events-none">
