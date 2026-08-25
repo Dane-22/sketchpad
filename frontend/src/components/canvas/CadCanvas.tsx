@@ -17,7 +17,6 @@ import { CanvasContextMenu } from './overlays/CanvasContextMenu';
 import { socket } from '../../features/planner/utils/socket';
 import { OnlineUsersWidget } from './OnlineUsersWidget';
 import { useAuthStore } from '../../features/auth/store/useAuthStore';
-import { getUserColor } from '../../features/planner/utils/colors';
 import { InlineCropOverlay } from './InlineCropOverlay';
 
 interface CadCanvasProps {

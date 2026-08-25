@@ -95,6 +95,7 @@ interface CanvasStateStore {
   userColor: string;
   setUserColor: (color: string) => void;
   unitMode: 'metric' | 'imperial';
+  setUnitMode: (mode: 'metric' | 'imperial') => void;
   setPendingCoordinate: (coord: { x: number; y: number; isRelative: boolean } | null) => void;
   parseCommand: (input: string) => void;
   spawnStressTest: () => void;
