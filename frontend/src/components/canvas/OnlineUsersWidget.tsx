@@ -47,11 +47,15 @@ export const OnlineUsersWidget: React.FC<OnlineUsersWidgetProps> = ({ remoteCurs
         {displayUsers.map((user, idx) => (
           <div
             key={idx}
-            className="w-6 h-6 rounded-full border-2 border-theme-surface flex items-center justify-center text-[10px] font-bold text-white shadow-sm"
+            className="group relative w-6 h-6 rounded-full border-2 border-theme-surface flex items-center justify-center text-[10px] font-bold text-white shadow-sm"
             style={{ backgroundColor: user.color }}
-            title={user.name}
           >
             {user.name.charAt(0).toUpperCase()}
+            
+            {/* Custom Tooltip */}
+            <div className="absolute top-full mt-2 hidden group-hover:block whitespace-nowrap bg-theme-surface border border-theme-border rounded px-2 py-1 text-xs text-white z-50 shadow-lg pointer-events-none">
+              {user.name}
+            </div>
           </div>
         ))}
         {extraUsers > 0 && (
