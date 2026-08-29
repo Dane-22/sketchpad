@@ -834,7 +834,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
 
     // Apply snapping conditionally
     let snapResult: { point: { x: number; y: number }; type: SnapType; elementId?: string; nodeIndex?: number } | null = null;
-    if (snapMode && elements.length > 0 && !isContinuousInkTool) {
+    if (snapMode && !isContinuousInkTool) {
       snapResult = calculateSnapPoint(pos, elements, 50, snapMode, stageScale);
       if (snapResult && snapResult.type) {
         pos = snapResult.point;
