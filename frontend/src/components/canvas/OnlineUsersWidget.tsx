@@ -38,29 +38,31 @@ export const OnlineUsersWidget: React.FC<OnlineUsersWidgetProps> = ({ remoteCurs
     return Array.from(users.values());
   }, [remoteCursors, currentUser, myColor]);
 
+  const displayUsers = onlineUsers.slice(0, 3);
+  const extraUsers = onlineUsers.length > 3 ? onlineUsers.length - 3 : 0;
+
   return (
-    <div className="absolute top-20 right-4 z-[999] pointer-events-none">
-      <div className="bg-theme-elevated border border-theme-border rounded-xl p-3 shadow-lg backdrop-blur-sm bg-opacity-90 w-48">
-        <h3 className="text-xs font-bold text-theme-text/60 uppercase tracking-wider mb-3 px-1">
-          Online Users — {onlineUsers.length}
-        </h3>
-        <div className="flex flex-col gap-2">
-          {onlineUsers.map((user, idx) => (
-            <div
-              key={idx}
-              className="flex items-center gap-3 px-1 py-1 rounded-md hover:bg-theme-border/50 transition-colors"
-            >
-              <div 
-                className="w-2.5 h-2.5 rounded-full shadow-sm"
-                style={{ backgroundColor: user.color }}
-              />
-              <span className="text-sm font-medium text-theme-text truncate">
-                {user.name}
-              </span>
-            </div>
-          ))}
-        </div>
+    <div className="flex items-center gap-2">
+      <div className="flex items-center -space-x-2">
+        {displayUsers.map((user, idx) => (
+          <div
+            key={idx}
+            className="w-6 h-6 rounded-full border-2 border-theme-surface flex items-center justify-center text-[10px] font-bold text-white shadow-sm"
+            style={{ backgroundColor: user.color }}
+            title={user.name}
+          >
+            {user.name.charAt(0).toUpperCase()}
+          </div>
+        ))}
+        {extraUsers > 0 && (
+          <div className="w-6 h-6 rounded-full border-2 border-theme-surface flex items-center justify-center text-[10px] font-bold bg-theme-elevated text-theme-muted shadow-sm">
+            +{extraUsers}
+          </div>
+        )}
       </div>
+      <span className="text-[10px] font-medium text-theme-muted hidden sm:inline-block">
+        {onlineUsers.length} Online
+      </span>
     </div>
   );
 };

@@ -40,8 +40,10 @@ interface CanvasStateStore {
   setHighlighterColor: (color: string) => void;
   highlighterWidth: number;
   setHighlighterWidth: (w: number) => void;
-  eraserMode: 'hover' | 'click';
-  setEraserMode: (mode: 'hover' | 'click') => void;
+  eraserMode: 'brush' | 'click';
+  setEraserMode: (mode: 'brush' | 'click') => void;
+  brushSize: number;
+  setBrushSize: (size: number) => void;
   cropTargetId: string | null;
   cropMode: 'rect' | 'freehand' | 'image_eraser' | null;
   startCropping: (id: string, mode: 'rect' | 'freehand' | 'image_eraser') => void;
@@ -143,8 +145,10 @@ export const useCanvasState = create<CanvasStateStore>()(
       setHighlighterColor: (color) => set({ highlighterColor: color }),
       highlighterWidth: 20,
       setHighlighterWidth: (w) => set({ highlighterWidth: w }),
-      eraserMode: 'hover',
+      eraserMode: 'brush',
       setEraserMode: (mode) => set({ eraserMode: mode }),
+      brushSize: 2,
+      setBrushSize: (size) => set({ brushSize: size }),
       cropTargetId: null,
       cropMode: null,
       startCropping: (id, mode) => set({ cropTargetId: id, cropMode: mode }),
@@ -290,15 +294,6 @@ export const useCanvasState = create<CanvasStateStore>()(
       }),
       removeElement: (id, commit = true, isRemote = false, projectId?: string) => set((state) => {
         const targetProjectId = projectId || state.activeProjectId;
-        const el = state.elements.find(e => e.id === id);
-        if (!isRemote && el && el.authorId) {
-          const currentUser = useAuthStore.getState().user;
-          if (currentUser && el.authorId !== currentUser.id) {
-            // Cannot delete someone else's ink
-            return state;
-          }
-        }
-        
         const newElements = state.elements.filter(el => el.id !== id);
         
         if (!isRemote) {
@@ -323,18 +318,7 @@ export const useCanvasState = create<CanvasStateStore>()(
       removeElements: (ids, commit = true, isRemote = false, projectId?: string) => set((state) => {
         const targetProjectId = projectId || state.activeProjectId;
         
-        let validIds = ids;
-        if (!isRemote) {
-          const currentUser = useAuthStore.getState().user;
-          if (currentUser) {
-            validIds = ids.filter(id => {
-              const el = state.elements.find(e => e.id === id);
-              // Allow deletion if authorId is missing or if it matches the current user
-              return !el || !el.authorId || el.authorId === currentUser.id;
-            });
-          }
-        }
-        
+        const validIds = ids;
         const idSet = new Set(validIds);
         const newElements = state.elements.filter(el => !idSet.has(el.id));
         

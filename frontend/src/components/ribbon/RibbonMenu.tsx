@@ -9,8 +9,14 @@ import {
 } from 'lucide-react';
 import { useCanvasState } from '../../features/planner/hooks/useCanvasState';
 import { useToast } from '../ui/ToastProvider';
+import { OnlineUsersWidget } from '../canvas/OnlineUsersWidget';
+import { RemoteCursor } from '../../features/planner/hooks/useCollaboration';
 
-const RibbonMenu = () => {
+interface RibbonMenuProps {
+  remoteCursors?: Record<string, RemoteCursor>;
+}
+
+const RibbonMenu: React.FC<RibbonMenuProps> = ({ remoteCursors = {} }) => {
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('Home');
   const [isStampDropdownOpen, setIsStampDropdownOpen] = useState(false);
@@ -67,21 +73,26 @@ const RibbonMenu = () => {
 
   return (
     <div className="flex flex-col bg-theme-surface border-b border-theme-border w-full z-40 transition-colors duration-300">
-      {/* Ribbon Tabs Headers */}
-      <div className="flex px-2 pt-1 gap-1 overflow-x-auto no-scrollbar">
-        {tabs.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => handleTabClick(tab)}
-            className={`px-4 py-1 text-xs transition-colors rounded-t-sm whitespace-nowrap
-              ${activeTab === tab 
-                ? 'bg-theme-main text-theme-primary border border-b-0 border-theme-border font-medium' 
-                : 'text-theme-muted hover:bg-theme-hover hover:text-theme-primary'
-              }`}
-          >
-            {tab}
-          </button>
-        ))}
+      {/* Ribbon Tabs Headers & Right Actions */}
+      <div className="flex px-2 pt-1 gap-1 items-end justify-between w-full">
+        <div className="flex gap-1 overflow-x-auto no-scrollbar">
+          {tabs.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => handleTabClick(tab)}
+              className={`px-4 py-1 text-xs transition-colors rounded-t-sm whitespace-nowrap
+                ${activeTab === tab 
+                  ? 'bg-theme-main text-theme-primary border border-b-0 border-theme-border font-medium' 
+                  : 'text-theme-muted hover:bg-theme-hover hover:text-theme-primary'
+                }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center pb-1 pr-2">
+          <OnlineUsersWidget remoteCursors={remoteCursors} />
+        </div>
       </div>
 
       {/* Ribbon Tab Content Area */}
@@ -174,14 +185,14 @@ const RibbonMenu = () => {
                     <span className="text-[10px] text-theme-muted font-semibold uppercase px-1">Eraser Mode</span>
                     <button
                       onClick={() => {
-                        setEraserMode('hover');
+                        setEraserMode('brush');
                         setIsEraserDropdownOpen(false);
-                        showToast(`Eraser mode changed to Hover`);
+                        showToast(`Eraser mode changed to Brush`);
                       }}
                       className="flex items-center gap-2 px-2 py-1 text-xs text-left rounded hover:bg-white/10 text-theme-primary"
                     >
-                      <span>Hover to Erase</span>
-                      {eraserMode === 'hover' && <CheckCircle2 size={14} className="ml-auto text-cyan-400" />}
+                      <span>Brush to Erase</span>
+                      {eraserMode === 'brush' && <CheckCircle2 size={14} className="ml-auto text-cyan-400" />}
                     </button>
                     <button
                       onClick={() => {

@@ -145,12 +145,7 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu, hoveredE
 
   const handlePointerEnter = (id: string) => {
     if (activeTool === 'eraser') {
-      const eraserMode = useCanvasState.getState().eraserMode;
-      if (eraserMode === 'hover') {
-        removeElement(id);
-        setHoveredId(null);
-        return;
-      }
+      // Hover mode is removed, now it acts like a brush
     }
     if (activeTool === 'eraser' || activeTool === 'select') {
       setHoveredId(id);
@@ -438,6 +433,20 @@ const DrawingLayer: React.FC<DrawingLayerProps> = ({ onOpenContextMenu, hoveredE
               tension={0.3}
               hitStrokeWidth={16}
               {...restProps}
+            />
+          );
+        } else if (el.type === 'eraser') {
+          return (
+            <Line
+              key={el.id}
+              points={el.points || []}
+              stroke="white"
+              strokeWidth={el.strokeWidth || 10}
+              lineCap="round"
+              lineJoin="round"
+              tension={0.3}
+              globalCompositeOperation="destination-out"
+              listening={false}
             />
           );
         } else if (el.type === 'cloud') {

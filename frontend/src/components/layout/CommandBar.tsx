@@ -41,8 +41,8 @@ const CommandBar = () => {
   };
 
   return (
-    <div className="h-12 bg-theme-surface/80 backdrop-blur-md border-t border-theme-border/50 flex items-center px-4 justify-between z-40 text-sm font-mono transition-all duration-300 relative shadow-[0_-10px_30px_rgba(0,0,0,0.2)]">
-      <div className="flex items-center text-theme-primary flex-1 group focus-within:ring-1 focus-within:ring-theme-accent/50 rounded bg-white/5 px-2 py-1 transition-all duration-300">
+    <div className="min-h-[3rem] py-2 md:py-0 bg-theme-surface/80 backdrop-blur-md border-t border-theme-border/50 flex flex-col md:flex-row items-center px-2 md:px-4 justify-between z-40 text-sm font-mono transition-all duration-300 relative shadow-[0_-10px_30px_rgba(0,0,0,0.2)]">
+      <div className="flex items-center text-theme-primary w-full md:w-auto md:flex-1 group focus-within:ring-1 focus-within:ring-theme-accent/50 rounded bg-white/5 px-2 py-1 transition-all duration-300 mb-2 md:mb-0">
         <span className="text-theme-accent mr-3 drop-shadow-md">{"\u276F"}</span>
         <span className="mr-2 opacity-75">{commandMessage}</span>
         <input 
@@ -51,14 +51,14 @@ const CommandBar = () => {
           value={inputValue}
           onChange={(e) => setInputValue(e.target.value)}
           onKeyDown={handleInputKeyDown}
-          className="bg-transparent border-none outline-none text-theme-primary flex-1 caret-theme-accent font-sans text-[15px]"
+          className="bg-transparent border-none outline-none text-theme-primary flex-1 caret-theme-accent font-sans text-[15px] min-w-0"
           placeholder="Type a command..."
           autoComplete="off"
           spellCheck={false}
         />
       </div>
       
-      <div className="flex items-center gap-4 text-theme-muted select-none ml-4 text-xs tracking-wider">
+      <div className="hidden md:flex items-center gap-4 text-theme-muted select-none ml-4 text-xs tracking-wider">
         <div 
           onClick={() => setUnitMode(unitMode === 'metric' ? 'imperial' : 'metric')}
           title="Toggle Units"

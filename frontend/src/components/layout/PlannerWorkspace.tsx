@@ -5,6 +5,7 @@ import axios from 'axios';
 import TopNavbar from './TopNavbar';
 import RibbonMenu from '../ribbon/RibbonMenu';
 import CadCanvas from '../canvas/CadCanvas';
+import { useCollaboration } from '../../features/planner/hooks/useCollaboration';
 import BlockSidebar from './BlockSidebar';
 import CommandBar from './CommandBar';
 import ImportModal from './ImportModal';
@@ -26,6 +27,7 @@ export default function PlannerWorkspace() {
   const { projectId } = useParams<{ projectId: string }>();
   const [searchParams] = useSearchParams();
   const token = useAuthStore(state => state.token);
+  const { remoteCursors, emitCursorMove } = useCollaboration(projectId);
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [targetChannelId, setTargetChannelId] = useState<string | null>(null);
@@ -138,7 +140,7 @@ export default function PlannerWorkspace() {
         onJumpToCanvas={handleJumpToCanvas}
         onOpenChannel={handleOpenChannel}
       />
-      <RibbonMenu />
+      <RibbonMenu remoteCursors={remoteCursors} />
       <div className="flex-1 relative flex flex-col overflow-hidden">
         <PropertiesPanel />
         <LayerPanel />
@@ -158,6 +160,8 @@ export default function PlannerWorkspace() {
                 setPendingPinPos(pos);
                 setActiveCommentId(null);
               }}
+              remoteCursors={remoteCursors}
+              emitCursorMove={emitCursorMove}
             />
             <BlockSidebar />
           </main>

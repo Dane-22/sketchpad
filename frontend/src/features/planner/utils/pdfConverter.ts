@@ -43,7 +43,7 @@ export function canvasToBlob(canvas: HTMLCanvasElement, mimeType = 'image/webp',
 /**
  * Converts a PDF File into an array of high-resolution image data URLs and Blobs (one per page).
  */
-export async function convertPdfToImages(file: File, renderScale = 8.0): Promise<ConvertedPdfPage[]> {
+export async function convertPdfToImages(file: File, renderScale = 12.0): Promise<ConvertedPdfPage[]> {
   const arrayBuffer = await file.arrayBuffer();
   const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
   const pdfDoc = await loadingTask.promise;
@@ -89,6 +89,7 @@ export async function convertPdfToImages(file: File, renderScale = 8.0): Promise
 
 /**
  * Loads an image File (PNG, JPG, SVG, WebP) and returns its DataURL along with natural dimensions and File.
+ * Preserves native maximum resolution without downscaling.
  */
 export function convertImageFileToDataUrl(file: File): Promise<{ dataUrl: string; file: File; width: number; height: number }> {
   return new Promise((resolve, reject) => {
@@ -99,28 +100,6 @@ export function convertImageFileToDataUrl(file: File): Promise<{ dataUrl: string
       img.onload = () => {
         const origW = img.naturalWidth || img.width;
         const origH = img.naturalHeight || img.height;
-        let scale = 1;
-        if (origW > 0 && origW < 1500) {
-          scale = 1500 / origW;
-        }
-        if (scale > 1) {
-          const canvas = document.createElement('canvas');
-          canvas.width = origW * scale;
-          canvas.height = origH * scale;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.imageSmoothingEnabled = false; // Sharp upscale
-            ctx.scale(scale, scale);
-            ctx.drawImage(img, 0, 0);
-            resolve({
-              dataUrl: canvas.toDataURL('image/webp', 0.95),
-              file,
-              width: canvas.width,
-              height: canvas.height
-            });
-            return;
-          }
-        }
         resolve({
           dataUrl,
           file,

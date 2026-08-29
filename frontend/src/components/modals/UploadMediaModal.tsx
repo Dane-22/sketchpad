@@ -24,7 +24,7 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
   
   // PDF Multi-page state
   const [pdfPages, setPdfPages] = useState<ConvertedPdfPage[]>([]);
-  const [selectedPageIdx, setSelectedPageIdx] = useState<number>(0);
+  const [selectedPageIndices, setSelectedPageIndices] = useState<number[]>([]);
   const [activeFileName, setActiveFileName] = useState<string>('');
 
   // Single Image / CAD Blueprint State
@@ -42,7 +42,7 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
   const resetState = () => {
     setError(null);
     setPdfPages([]);
-    setSelectedPageIdx(0);
+    setSelectedPageIndices([]);
     setActiveFileName('');
     setPreviewImage(null);
     setIsProcessing(false);
@@ -70,7 +70,7 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
           throw new Error('No readable pages found in PDF.');
         }
         setPdfPages(pages);
-        setSelectedPageIdx(0);
+        setSelectedPageIndices([0]);
       } else if (['png', 'jpg', 'jpeg', 'webp', 'svg'].includes(ext)) {
         const imgData = await convertImageFileToDataUrl(file);
         setPreviewImage(imgData);
@@ -109,94 +109,133 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
   };
 
   const handleInsert = async () => {
-    let targetDataUrl = '';
-    let origWidth = 800;
-    let origHeight = 600;
-    let fileOrBlobToUpload: File | Blob | null = null;
-    let assetName = activeFileName || 'canvas-asset.webp';
+    let elementsToAdd: CanvasElement[] = [];
 
-    if (pdfPages.length > 0) {
-      const page = pdfPages[selectedPageIdx];
-      targetDataUrl = page.dataUrl;
-      fileOrBlobToUpload = page.blob;
-      origWidth = page.width;
-      origHeight = page.height;
-      assetName = `${activeFileName}-p${page.pageNumber}.webp`;
+    setIsProcessing(true);
+
+    const viewCenterX = (-stagePos.x + stageWidth / 2) / stageScale;
+    const viewCenterY = (-stagePos.y + stageHeight / 2) / stageScale;
+
+    if (pdfPages.length > 0 && selectedPageIndices.length > 0) {
+      let currentXOffset = 0;
+
+      for (let i = 0; i < selectedPageIndices.length; i++) {
+        const pageIdx = selectedPageIndices[i];
+        const page = pdfPages[pageIdx];
+        
+        let finalSrc = page.dataUrl;
+        if (page.blob) {
+          try {
+            const assetName = `${activeFileName}-p${page.pageNumber}.webp`;
+            finalSrc = await uploadCanvasAssetToServer(page.blob, assetName);
+          } catch (uploadErr) {
+            console.warn('Upload failed, falling back:', uploadErr);
+          }
+        }
+
+        let targetWidth = page.width;
+        let targetHeight = page.height;
+        let scaleFit = 1;
+
+        if (fitToView) {
+          const maxW = Math.max(stageWidth * 0.8, 800);
+          const maxH = Math.max(stageHeight * 0.8, 600);
+          scaleFit = Math.min(maxW / page.width, maxH / page.height, 1.5);
+          targetWidth = page.width * scaleFit;
+          targetHeight = page.height * scaleFit;
+        }
+
+        const posX = viewCenterX - targetWidth / 2 + currentXOffset;
+        const posY = viewCenterY - targetHeight / 2;
+
+        const newElement: CanvasElement = {
+          id: Date.now().toString() + '-' + i,
+          type: 'image',
+          name: `${activeFileName} - Page ${page.pageNumber}`,
+          x: posX,
+          y: posY,
+          width: page.width,
+          height: page.height,
+          src: finalSrc,
+          opacity: 1,
+          locked: false,
+          layerId: activeLayerId,
+          scaleX: scaleFit,
+          scaleY: scaleFit
+        };
+
+        const cachedImg = new window.Image();
+        cachedImg.src = page.dataUrl;
+        if (finalSrc) imageCache.set(finalSrc, cachedImg);
+        imageCache.set(page.dataUrl, cachedImg);
+
+        elementsToAdd.push(newElement);
+        currentXOffset += targetWidth + (50 / stageScale);
+      }
     } else if (previewImage) {
-      targetDataUrl = previewImage.dataUrl;
-      fileOrBlobToUpload = previewImage.blob || previewImage.file;
-      origWidth = previewImage.width;
-      origHeight = previewImage.height;
-      assetName = previewImage.file.name;
+      let finalSrc = previewImage.dataUrl;
+      const fileOrBlobToUpload = previewImage.blob || previewImage.file;
+      
+      if (fileOrBlobToUpload) {
+        try {
+          finalSrc = await uploadCanvasAssetToServer(fileOrBlobToUpload, previewImage.file.name);
+        } catch (uploadErr) {
+          console.warn('Upload failed, falling back:', uploadErr);
+        }
+      }
+
+      let targetWidth = previewImage.width;
+      let targetHeight = previewImage.height;
+      let scaleFit = 1;
+
+      if (fitToView) {
+        const maxW = Math.max(stageWidth * 0.8, 800);
+        const maxH = Math.max(stageHeight * 0.8, 600);
+        scaleFit = Math.min(maxW / previewImage.width, maxH / previewImage.height, 1.5);
+        targetWidth = previewImage.width * scaleFit;
+        targetHeight = previewImage.height * scaleFit;
+      }
+
+      const posX = viewCenterX - targetWidth / 2;
+      const posY = viewCenterY - targetHeight / 2;
+
+      const newElement: CanvasElement = {
+        id: Date.now().toString(),
+        type: 'image',
+        name: activeFileName || 'Uploaded Document',
+        x: posX,
+        y: posY,
+        width: previewImage.width,
+        height: previewImage.height,
+        src: finalSrc,
+        opacity: 1,
+        locked: false,
+        layerId: activeLayerId,
+        scaleX: scaleFit,
+        scaleY: scaleFit
+      };
+
+      const cachedImg = new window.Image();
+      cachedImg.src = previewImage.dataUrl;
+      if (finalSrc) imageCache.set(finalSrc, cachedImg);
+      imageCache.set(previewImage.dataUrl, cachedImg);
+
+      elementsToAdd.push(newElement);
     } else {
       return;
     }
 
-    setIsProcessing(true);
-
-    // Upload asset to server for ultra-lightweight canvas state (URL instead of multi-megabyte base64)
-    let finalSrc = targetDataUrl;
-    if (fileOrBlobToUpload) {
-      try {
-        const serverUrl = await uploadCanvasAssetToServer(fileOrBlobToUpload, assetName);
-        finalSrc = serverUrl;
-      } catch (uploadErr) {
-        console.warn('Could not upload canvas asset to server, falling back to local dataUrl:', uploadErr);
-      }
-    }
-
-    // Determine coordinate & dimensions on canvas
-    let targetWidth = origWidth;
-    let targetHeight = origHeight;
-
-    // Scale to a reasonable size if fitToView is selected
-    let scaleFit = 1;
-    if (fitToView) {
-      const maxW = Math.max(stageWidth * 0.8, 800);
-      const maxH = Math.max(stageHeight * 0.8, 600);
-      scaleFit = Math.min(maxW / origWidth, maxH / origHeight, 1.5);
-      targetWidth = origWidth * scaleFit;
-      targetHeight = origHeight * scaleFit;
-    }
-
-    // Place at center of current view
-    const viewCenterX = (-stagePos.x + stageWidth / 2) / stageScale;
-    const viewCenterY = (-stagePos.y + stageHeight / 2) / stageScale;
-    const posX = viewCenterX - targetWidth / 2;
-    const posY = viewCenterY - targetHeight / 2;
-
-    const newElement: CanvasElement = {
-      id: Date.now().toString(),
-      type: 'image',
-      name: activeFileName || 'Uploaded Document',
-      x: posX,
-      y: posY,
-      width: origWidth, // Preserve original resolution width
-      height: origHeight, // Preserve original resolution height
-      src: finalSrc,
-      opacity: 1,
-      locked: false,
-      layerId: activeLayerId,
-      scaleX: scaleFit, // Use scaling instead of actual dimensions for crispness
-      scaleY: scaleFit
-    };
-
-    // Pre-cache image so it renders instantly on the Konva canvas
-    if (targetDataUrl) {
-      const cachedImg = new window.Image();
-      cachedImg.src = targetDataUrl;
-      if (finalSrc) {
-        imageCache.set(finalSrc, cachedImg);
-      }
-      imageCache.set(targetDataUrl, cachedImg);
+    if (elementsToAdd.length === 0) {
+      setIsProcessing(false);
+      return;
     }
 
     if (importMode === 'replace') {
-      setElements([newElement], true, false, true);
+      setElements(elementsToAdd, true, false, true);
       setStageScale(1);
       setStagePos({ x: 50, y: 50 });
     } else {
-      addElement(newElement, true, false);
+      elementsToAdd.forEach(el => addElement(el, true, false));
     }
 
     const ext = activeFileName.split('.').pop()?.toLowerCase() || '';
@@ -204,7 +243,7 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
       ext === 'skp' || ext === 'skb' ? 'SketchUp 3D Model sheet added to canvas!' :
       ext === 'dwg' || ext === 'dxf' ? 'AutoCAD DWG Blueprint sheet added to canvas!' :
       ext === 'doc' || ext === 'docx' ? 'Specification Document sheet added to canvas!' :
-      pdfPages.length > 0 ? `PDF Page ${selectedPageIdx + 1} added to canvas!` :
+      pdfPages.length > 0 ? `${elementsToAdd.length} PDF Page${elementsToAdd.length > 1 ? 's' : ''} added to canvas!` :
       'Image asset added to canvas!';
 
     showToast(toastMsg, 'success');
@@ -297,21 +336,39 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
                   <span>{activeFileName}</span>
                   <span className="text-xs font-normal text-theme-muted">({pdfPages.length} page{pdfPages.length > 1 ? 's' : ''})</span>
                 </div>
-                <button
-                  onClick={resetState}
-                  className="text-xs text-theme-muted hover:text-theme-primary underline"
-                >
-                  Choose different file
-                </button>
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={() => {
+                      if (selectedPageIndices.length === pdfPages.length) {
+                        setSelectedPageIndices([]);
+                      } else {
+                        setSelectedPageIndices(pdfPages.map((_, i) => i));
+                      }
+                    }}
+                    className="text-xs text-theme-muted hover:text-theme-primary underline"
+                  >
+                    {selectedPageIndices.length === pdfPages.length ? 'Deselect All' : 'Select All'}
+                  </button>
+                  <button
+                    onClick={resetState}
+                    className="text-xs text-theme-muted hover:text-theme-primary underline"
+                  >
+                    Choose different file
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 max-h-56 overflow-y-auto p-2 bg-theme-main/50 rounded-xl border border-theme-border">
                 {pdfPages.map((page, idx) => (
                   <div
                     key={page.pageNumber}
-                    onClick={() => setSelectedPageIdx(idx)}
+                    onClick={() => {
+                      setSelectedPageIndices(prev => 
+                        prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx].sort((a,b) => a - b)
+                      );
+                    }}
                     className={`relative rounded-lg overflow-hidden border-2 cursor-pointer transition-all ${
-                      selectedPageIdx === idx
+                      selectedPageIndices.includes(idx)
                         ? 'border-theme-accent shadow-md shadow-theme-accent/20 scale-[1.02]'
                         : 'border-theme-border hover:border-theme-muted opacity-80 hover:opacity-100'
                     }`}
@@ -324,7 +381,7 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
                     <div className="absolute bottom-0 inset-x-0 bg-black/60 backdrop-blur-xs py-0.5 text-center text-[10px] text-white font-medium">
                       Page {page.pageNumber}
                     </div>
-                    {selectedPageIdx === idx && (
+                    {selectedPageIndices.includes(idx) && (
                       <div className="absolute top-1 right-1 bg-theme-accent text-theme-main rounded-full p-0.5">
                         <Check size={12} strokeWidth={3} />
                       </div>
@@ -451,7 +508,7 @@ export const UploadMediaModal: React.FC<UploadMediaModalProps> = ({ isOpen, onCl
           </button>
           <button
             onClick={handleInsert}
-            disabled={(!previewImage && pdfPages.length === 0) || isCropping}
+            disabled={(!previewImage && selectedPageIndices.length === 0) || isCropping}
             className="flex items-center gap-2 px-5 py-2 text-xs font-semibold rounded-lg bg-theme-accent text-theme-main hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-theme-accent/10"
           >
             <Layers size={15} />

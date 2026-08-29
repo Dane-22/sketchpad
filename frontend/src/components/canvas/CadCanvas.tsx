@@ -8,16 +8,16 @@ import { useCanvasState } from '../../features/planner/hooks/useCanvasState';
 import { getRelativePointerPosition } from '../../features/planner/utils/geometryMath';
 import { CanvasElement } from '../../types/canvas';
 import UcsIcon from './overlays/UcsIcon';
-import { useCollaboration } from '../../features/planner/hooks/useCollaboration';
+import { RemoteCursor } from '../../features/planner/hooks/useCollaboration';
 import RemoteCursorsLayer from './RemoteCursorsLayer';
 import { calculateSnapPoint, SnapType } from '../../features/planner/utils/snapping';
 import { CommentPinLayer } from './CommentPinLayer';
 import { CanvasComment } from '../../types/comment';
 import { CanvasContextMenu } from './overlays/CanvasContextMenu';
 import { socket } from '../../features/planner/utils/socket';
-import { OnlineUsersWidget } from './OnlineUsersWidget';
 import { useAuthStore } from '../../features/auth/store/useAuthStore';
 import { InlineCropOverlay } from './InlineCropOverlay';
+import { BrushQuickAccessToolbar } from './overlays/BrushQuickAccessToolbar';
 
 interface CadCanvasProps {
   projectId?: string;
@@ -27,6 +27,8 @@ interface CadCanvasProps {
   pendingPinPos?: { x: number; y: number } | null;
   isAddingComment?: boolean;
   onDropPinAtPos?: (pos: { x: number; y: number }) => void;
+  remoteCursors: Record<string, RemoteCursor>;
+  emitCursorMove: (x: number, y: number) => void;
 }
 
 const CadCanvas: React.FC<CadCanvasProps> = ({
@@ -37,8 +39,11 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
   pendingPinPos = null,
   isAddingComment = false,
   onDropPinAtPos,
+  remoteCursors,
+  emitCursorMove,
 }) => {
   const stageRef = useRef<Konva.Stage>(null);
+  const brushPreviewRef = useRef<Konva.Circle>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: window.innerWidth, height: window.innerHeight });
@@ -54,10 +59,8 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
     groups, setGroups, setSelectedElementIds,
     pendingCoordinate, setPendingCoordinate,
     activeTopicId, activeStampType, highlighterColor, highlighterWidth,
-    eraserMode, userColor
+    eraserMode, userColor, brushSize
   } = useCanvasState();
-
-  const { remoteCursors, emitCursorMove } = useCollaboration(projectId);
 
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentLineId, setCurrentLineId] = useState<string | null>(null);
@@ -78,6 +81,12 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; elementId: string } | null>(null);
   const [snapIndicator, setSnapIndicator] = useState<{ point: {x: number, y: number}, type: SnapType } | null>(null);
   const [hoveredElementId, setHoveredElementId] = useState<string | null>(null);
+
+  // Touch specific refs
+  const touchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const touchStartPosRef = useRef<{x: number, y: number} | null>(null);
+  const lastCenterRef = useRef<{x: number, y: number} | null>(null);
+  const lastDistRef = useRef<number | null>(null);
 
   const finishPolyline = useCallback(() => {
     if (!activePolylineId) return;
@@ -262,14 +271,116 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
     });
   };
 
+  const handleTouchStart = (e: Konva.KonvaEventObject<TouchEvent>) => {
+    if (e.evt.touches.length === 1) {
+      const touch = e.evt.touches[0];
+      const stage = e.target.getStage();
+      if (stage) {
+        touchStartPosRef.current = { x: touch.clientX, y: touch.clientY };
+        touchTimerRef.current = setTimeout(() => {
+          if (touchStartPosRef.current) {
+            const pos = getRelativePointerPosition(stage);
+            setContextMenu({ x: pos.x, y: pos.y, elementId: '' });
+          }
+        }, 500);
+      }
+      handleMouseDown(e as any);
+    } else if (e.evt.touches.length === 2) {
+      if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+      touchStartPosRef.current = null;
+
+      const t1 = e.evt.touches[0];
+      const t2 = e.evt.touches[1];
+      lastDistRef.current = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      lastCenterRef.current = {
+        x: (t1.clientX + t2.clientX) / 2,
+        y: (t1.clientY + t2.clientY) / 2
+      };
+      setIsPanning(true);
+      isPanningRef.current = true;
+    }
+  };
+
+  const handleTouchMove = (e: Konva.KonvaEventObject<TouchEvent>) => {
+    e.evt.preventDefault();
+    if (e.evt.touches.length === 1) {
+      const touch = e.evt.touches[0];
+      if (touchStartPosRef.current) {
+        const dist = Math.hypot(touch.clientX - touchStartPosRef.current.x, touch.clientY - touchStartPosRef.current.y);
+        if (dist > 10 && touchTimerRef.current) {
+          clearTimeout(touchTimerRef.current);
+          touchTimerRef.current = null;
+        }
+      }
+      handleMouseMove(e as any);
+    } else if (e.evt.touches.length === 2 && lastCenterRef.current && lastDistRef.current) {
+      if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
+      
+      const t1 = e.evt.touches[0];
+      const t2 = e.evt.touches[1];
+      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      const center = {
+        x: (t1.clientX + t2.clientX) / 2,
+        y: (t1.clientY + t2.clientY) / 2
+      };
+
+      const stage = stageRef.current;
+      if (stage) {
+        const scaleBy = dist / lastDistRef.current;
+        const oldScale = stage.scaleX();
+        const newScale = oldScale * scaleBy;
+        
+        if (newScale >= 0.1 && newScale <= 10) {
+          const dx = center.x - lastCenterRef.current.x;
+          const dy = center.y - lastCenterRef.current.y;
+          
+          const mousePointTo = {
+            x: (center.x - stage.x()) / oldScale,
+            y: (center.y - stage.y()) / oldScale,
+          };
+
+          setStageScale(newScale);
+          setStagePos({
+            x: center.x - mousePointTo.x * newScale + dx,
+            y: center.y - mousePointTo.y * newScale + dy,
+          });
+        }
+      }
+
+      lastDistRef.current = dist;
+      lastCenterRef.current = center;
+    }
+  };
+
+  const handleTouchEnd = (e: Konva.KonvaEventObject<TouchEvent>) => {
+    if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
+    touchTimerRef.current = null;
+    touchStartPosRef.current = null;
+
+    if (e.evt.touches.length === 0) {
+      if (isPanningRef.current) {
+        isPanningRef.current = false;
+        setIsPanning(false);
+      } else {
+        handleMouseUp(e as any);
+      }
+      lastDistRef.current = null;
+      lastCenterRef.current = null;
+    }
+  };
+
 
 
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    const evt = e.evt as any;
+    const isTouch = evt.type && evt.type.startsWith('touch');
+
     // Handle middle mouse button or spacebar+left-click for panning
-    if (e.evt.button === 1 || e.evt.buttons === 4 || (e.evt.button === 0 && isSpacebarDown)) {
+    if (!isTouch && (evt.button === 1 || evt.buttons === 4 || (evt.button === 0 && isSpacebarDown))) {
       e.evt.preventDefault();
 
-      if (e.evt.button === 1 || e.evt.buttons === 4) {
+      if (evt.button === 1 || evt.buttons === 4) {
         const now = Date.now();
         if (now - lastMiddleClickTimeRef.current < 300) {
           handleZoomExtents();
@@ -288,7 +399,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
       return;
     }
 
-    if (e.evt.button !== 0) return;
+    if (!isTouch && evt.button !== 0) return;
 
     if (!stageRef.current) return;
 
@@ -309,15 +420,18 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         setSelectedElementIds([]);
         useCanvasState.getState().stopCropping();
       }
-      return;
+      if (activeTool !== 'eraser' || eraserMode === 'click') return;
     }
     
     let pos = getRelativePointerPosition(stageRef.current);
 
+    const isContinuousInkTool = activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'eraser';
     
     // Apply snapping
-    const snapResult = calculateSnapPoint(pos, elements, 50, snapMode, stageScale);
-    pos = snapResult.point;
+    if (!isContinuousInkTool) {
+      const snapResult = calculateSnapPoint(pos, elements, 50, snapMode, stageScale);
+      pos = snapResult.point;
+    }
 
     if (activeTool === 'text') {
       const id = Date.now().toString();
@@ -446,7 +560,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
       }
     }
     
-    if (activeTool === 'line' || activeTool === 'arrow' || activeTool === 'freehand' || activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'arc') {
+    if (activeTool === 'line' || activeTool === 'arrow' || activeTool === 'freehand' || activeTool === 'eraser' || activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'arc') {
       setIsDrawing(true);
       const id = Date.now().toString();
       setCurrentLineId(id);
@@ -455,9 +569,9 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         authorId: currentUser?.id,
         id,
         type: activeTool,
-        x: (activeTool === 'line' || activeTool === 'arrow' || activeTool === 'freehand') ? 0 : pos.x,
-        y: (activeTool === 'line' || activeTool === 'arrow' || activeTool === 'freehand') ? 0 : pos.y,
-        points: (activeTool === 'line' || activeTool === 'arrow' || activeTool === 'freehand') ? [pos.x, pos.y] : undefined,
+        x: (activeTool === 'line' || activeTool === 'arrow' || activeTool === 'freehand' || activeTool === 'eraser') ? 0 : pos.x,
+        y: (activeTool === 'line' || activeTool === 'arrow' || activeTool === 'freehand' || activeTool === 'eraser') ? 0 : pos.y,
+        points: (activeTool === 'line' || activeTool === 'arrow' || activeTool === 'freehand' || activeTool === 'eraser') ? [pos.x, pos.y] : undefined,
         width: activeTool === 'rectangle' ? 0 : undefined,
         height: activeTool === 'rectangle' ? 0 : undefined,
         radius: activeTool === 'circle' ? 0 : undefined,
@@ -465,7 +579,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         outerRadius: activeTool === 'arc' ? 0 : undefined,
         angle: activeTool === 'arc' ? 0 : undefined,
         stroke: textColor?.toLowerCase() === '#ffffff' ? defaultUserInkColor : textColor,
-        strokeWidth: 2 / stageScale,
+        strokeWidth: (activeTool === 'freehand' || activeTool === 'eraser') ? brushSize / stageScale : 2 / stageScale,
         layerId: activeLayerId,
         topicId: activeTopicId || undefined
       };
@@ -600,7 +714,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         // Actually, let's keep absolute Y as positive = down for consistency with grid, unless we invert it entirely.
       }
 
-      if (activeTool === 'line' || activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'arc' || activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'cloud') {
+      if (activeTool === 'line' || activeTool === 'rectangle' || activeTool === 'circle' || activeTool === 'arc' || activeTool === 'freehand' || activeTool === 'eraser' || activeTool === 'highlighter' || activeTool === 'cloud') {
         if (!isDrawing) {
           setIsDrawing(true);
           const id = Date.now().toString();
@@ -610,14 +724,14 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         authorId: currentUser?.id,
             id,
             type: activeTool,
-            x: (activeTool === 'line' || activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'cloud') ? 0 : pos.x,
-            y: (activeTool === 'line' || activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'cloud') ? 0 : pos.y,
-            points: (activeTool === 'line' || activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'cloud') ? [pos.x, pos.y] : undefined,
+            x: (activeTool === 'line' || activeTool === 'freehand' || activeTool === 'eraser' || activeTool === 'highlighter' || activeTool === 'cloud') ? 0 : pos.x,
+            y: (activeTool === 'line' || activeTool === 'freehand' || activeTool === 'eraser' || activeTool === 'highlighter' || activeTool === 'cloud') ? 0 : pos.y,
+            points: (activeTool === 'line' || activeTool === 'freehand' || activeTool === 'eraser' || activeTool === 'highlighter' || activeTool === 'cloud') ? [pos.x, pos.y] : undefined,
             width: activeTool === 'rectangle' ? 0 : undefined,
             height: activeTool === 'rectangle' ? 0 : undefined,
             radius: activeTool === 'circle' ? 0 : undefined,
             stroke: textColor || '#00ffcc', 
-            strokeWidth: activeTool === 'highlighter' ? (highlighterWidth / stageScale) : (2 / stageScale),
+            strokeWidth: activeTool === 'highlighter' ? (highlighterWidth / stageScale) : ((activeTool === 'freehand' || activeTool === 'eraser') ? brushSize / stageScale : 2 / stageScale),
             opacity: activeTool === 'highlighter' ? 0.45 : 1,
             layerId: activeLayerId,
             topicId: activeTopicId || undefined
@@ -715,9 +829,11 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
     if (!stageRef.current) return;
     let pos = getRelativePointerPosition(stageRef.current);
     
+    const isContinuousInkTool = activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'eraser';
+
     // Apply snapping conditionally
     let snapResult: { point: { x: number; y: number }; type: SnapType; elementId?: string; nodeIndex?: number } | null = null;
-    if (snapMode && elements.length > 0) {
+    if (snapMode && elements.length > 0 && !isContinuousInkTool) {
       snapResult = calculateSnapPoint(pos, elements, 50, snapMode, stageScale);
       if (snapResult && snapResult.type) {
         pos = snapResult.point;
@@ -734,6 +850,11 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
     });
     
     emitCursorMove(pos.x, pos.y);
+
+    if (brushPreviewRef.current && (activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'eraser')) {
+      brushPreviewRef.current.position({ x: pos.x, y: pos.y });
+      brushPreviewRef.current.getLayer()?.batchDraw();
+    }
 
     if (activeTool === 'callout' && activeDimensionId && dimensionStep === 1) {
       setElements((prev) => 
@@ -833,8 +954,8 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
               }
             }
             return { ...el, points: [el.points![0], el.points![1], drawX, drawY] };
-          } else if (activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'cloud') {
-            if (activeTool === 'freehand' && orthoMode && el.points && el.points.length >= 2) {
+          } else if (activeTool === 'freehand' || activeTool === 'eraser' || activeTool === 'highlighter' || activeTool === 'cloud') {
+            if ((activeTool === 'freehand' || activeTool === 'eraser') && orthoMode && el.points && el.points.length >= 2) {
               const startX = el.points[0];
               const startY = el.points[1];
               let drawX = pos.x;
@@ -990,6 +1111,9 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
         onDblClick={handleDblClick}
         draggable={activeTool === 'select' && !isSpacebarDown}
         onDragEnd={(e) => {
@@ -998,7 +1122,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
           }
         }}
       >
-        <Layer id="main-layer">
+        <Layer id="grid-layer">
           <GridLayer 
             width={dimensions.width} 
             height={dimensions.height} 
@@ -1006,6 +1130,8 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
             x={stagePos.x}
             y={stagePos.y}
           />
+        </Layer>
+        <Layer id="main-layer">
           <DrawingLayer 
             onOpenContextMenu={(x, y, id) => setContextMenu({ x, y, elementId: id })} 
             hoveredElementId={hoveredElementId}
@@ -1065,6 +1191,20 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
                   />
                 )}
               </>
+            )}
+          </Group>
+          <Group listening={false}>
+            {(activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'eraser') && (
+              <Circle
+                ref={brushPreviewRef}
+                x={0}
+                y={0}
+                radius={activeTool === 'highlighter' ? highlighterWidth / (2 * stageScale) : brushSize / (2 * stageScale)}
+                stroke={activeTool === 'highlighter' ? highlighterColor : (activeTool === 'eraser' ? '#ff0000' : (textColor || '#00ffcc'))}
+                strokeWidth={1 / stageScale}
+                opacity={0.8}
+                dash={[4 / stageScale, 4 / stageScale]}
+              />
             )}
           </Group>
           </Group>
@@ -1136,7 +1276,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
 
       {/* Visual Overlays */}
       <UcsIcon />
-      <OnlineUsersWidget remoteCursors={remoteCursors} />
+      <BrushQuickAccessToolbar />
 
       {/* Canvas Element Right-Click Context Menu */}
       {contextMenu && (
