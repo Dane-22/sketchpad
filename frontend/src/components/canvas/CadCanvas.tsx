@@ -428,8 +428,9 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
     const isContinuousInkTool = activeTool === 'freehand' || activeTool === 'highlighter' || activeTool === 'eraser';
     
     // Apply snapping
+    let snapResult: { point: { x: number; y: number }; type: any; elementId?: string; nodeIndex?: number } | null = null;
     if (!isContinuousInkTool) {
-      const snapResult = calculateSnapPoint(pos, elements, 50, snapMode, stageScale);
+      snapResult = calculateSnapPoint(pos, elements, 50, snapMode, stageScale);
       pos = snapResult.point;
     }
 
@@ -638,7 +639,7 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
           strokeWidth: 1 / stageScale,
           layerId: activeLayerId,
           topicId: activeTopicId || undefined,
-          linkedElements: snapResult.elementId ? [{
+          linkedElements: snapResult?.elementId ? [{
             elementId: snapResult.elementId,
             dimensionPointIndex: 0,
             nodeIndex: snapResult.nodeIndex
@@ -648,16 +649,16 @@ const CadCanvas: React.FC<CadCanvasProps> = ({
       } else if (dimensionStep === 1) {
         // Step 1: Set P2
         setDimensionStep(2);
-        if (activeDimensionId && snapResult.elementId) {
+        if (activeDimensionId && snapResult?.elementId) {
           setElements(elements.map(el => {
             if (el.id === activeDimensionId) {
               const linkedElements = el.linkedElements || [];
               return {
                 ...el,
                 linkedElements: [...linkedElements, {
-                  elementId: snapResult.elementId!, // ts compiler should know it's string because of the check, but use ! just in case
+                  elementId: snapResult!.elementId!, // ts compiler should know it's string because of the check, but use ! just in case
                   dimensionPointIndex: 2,
-                  nodeIndex: snapResult.nodeIndex
+                  nodeIndex: snapResult!.nodeIndex
                 }]
               };
             }
