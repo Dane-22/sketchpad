@@ -95,7 +95,7 @@ function extractEmbeddedImageFromBuffer(arrayBuffer: ArrayBuffer): { blob: Blob;
 /**
  * Loads a Blob into an HTMLImageElement and returns its natural dimensions & DataURL.
  */
-function loadImageBlob(blob: Blob): Promise<{ dataUrl: string; width: number; height: number }> {
+function loadImageBlob(blob: Blob, minWidth: number = 1500): Promise<{ dataUrl: string; width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(blob);
     const img = new Image();
@@ -104,8 +104,8 @@ function loadImageBlob(blob: Blob): Promise<{ dataUrl: string; width: number; he
       const origW = img.naturalWidth || img.width;
       const origH = img.naturalHeight || img.height;
       let scale = 1;
-      if (origW > 0 && origW < 1500) {
-        scale = 1500 / origW;
+      if (origW > 0 && origW < minWidth) {
+        scale = minWidth / origW;
       }
       const canvas = document.createElement('canvas');
       canvas.width = origW * scale;
@@ -118,7 +118,7 @@ function loadImageBlob(blob: Blob): Promise<{ dataUrl: string; width: number; he
         ctx.scale(scale, scale);
         ctx.drawImage(img, 0, 0);
         resolve({
-          dataUrl: canvas.toDataURL('image/webp', 0.95),
+          dataUrl: canvas.toDataURL('image/webp', 1.0),
           width: canvas.width,
           height: canvas.height
         });
@@ -139,7 +139,7 @@ function loadImageBlob(blob: Blob): Promise<{ dataUrl: string; width: number; he
 /**
  * Generates an architectural plan view or extracts the real embedded project plan from .dwg / .skp files.
  */
-export async function generateCadDocumentPreview(file: File): Promise<CadDocumentPreviewResult> {
+export async function generateCadDocumentPreview(file: File, uploadQuality: number = 4.0): Promise<CadDocumentPreviewResult> {
   const ext = file.name.split('.').pop()?.toLowerCase() || '';
   const isSkp = ext === 'skp' || ext === 'skb';
   const isDwg = ext === 'dwg' || ext === 'dxf';
@@ -152,7 +152,8 @@ export async function generateCadDocumentPreview(file: File): Promise<CadDocumen
     const extracted = extractEmbeddedImageFromBuffer(buffer);
 
     if (extracted && extracted.blob) {
-      const loaded = await loadImageBlob(extracted.blob);
+      // Do not artificially upscale embedded low-res raster thumbnails
+      const loaded = await loadImageBlob(extracted.blob, 0);
       return {
         dataUrl: loaded.dataUrl,
         blob: extracted.blob,
@@ -183,7 +184,8 @@ export async function generateCadDocumentPreview(file: File): Promise<CadDocumen
       const previewUrl = response.data.previewUrl;
       const imgRes = await fetch(previewUrl);
       const blob = await imgRes.blob();
-      const loaded = await loadImageBlob(blob);
+      // Do not artificially upscale embedded low-res raster thumbnails
+      const loaded = await loadImageBlob(blob, 0);
 
       return {
         dataUrl: loaded.dataUrl,
@@ -199,8 +201,8 @@ export async function generateCadDocumentPreview(file: File): Promise<CadDocumen
   }
 
   // 3. Fallback: Generate a crisp Blueprint Sheet with Project Title Block
-  // Scale up internal resolution by 4x to ensure high-DPI quality
-  const renderScale = 4;
+  // Scale up internal resolution to ensure high-DPI quality
+  const renderScale = uploadQuality;
   const logicalWidth = 1200;
   const logicalHeight = 800;
   
@@ -293,8 +295,8 @@ export async function generateCadDocumentPreview(file: File): Promise<CadDocumen
   ctx.fillText(`SIZE: ${formatFileSize(file.size)}`, 550, logicalHeight - 45);
   ctx.fillText(`STATUS: ACTIVE PROJECT SHEET`, 850, logicalHeight - 45);
 
-  const fallbackBlob = await canvasToBlob(canvas, 'image/webp', 0.95);
-  const fallbackDataUrl = canvas.toDataURL('image/webp', 0.95);
+  const fallbackBlob = await canvasToBlob(canvas, 'image/webp', 1.0);
+  const fallbackDataUrl = canvas.toDataURL('image/webp', 1.0);
 
   return {
     dataUrl: fallbackDataUrl,

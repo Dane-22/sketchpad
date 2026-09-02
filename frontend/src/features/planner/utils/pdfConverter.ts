@@ -118,7 +118,7 @@ export function convertImageFileToDataUrl(file: File): Promise<{ dataUrl: string
 /**
  * Uploads a canvas image or PDF page blob to the backend server and returns the lightweight URL.
  */
-export async function uploadCanvasAssetToServer(fileOrBlob: File | Blob, filename: string = 'canvas-asset.webp'): Promise<string> {
+export async function uploadCanvasAssetToServer(fileOrBlob: File | Blob, filename: string = 'canvas-asset.png'): Promise<string> {
   const formData = new FormData();
   formData.append('file', fileOrBlob, filename);
 

@@ -51,6 +51,7 @@ export const ProjectMessengerWidget: React.FC<ProjectMessengerWidgetProps> = ({
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const [isAddMembersOpen, setIsAddMembersOpen] = useState(false);
   const [input, setInput] = useState('');
+  const [uploadQuality, setUploadQuality] = useState<number>(4.0);
 
   const currentUser = useAuthStore((state) => state.user);
   const token = useAuthStore((state) => state.token);
@@ -263,7 +264,7 @@ export const ProjectMessengerWidget: React.FC<ProjectMessengerWidgetProps> = ({
       const ext = fileName?.split('.').pop()?.toLowerCase() || '';
 
       if (ext === 'pdf') {
-        const pages = await convertPdfToImages(file, 2.0); // Reduced scale for lower latency
+        const pages = await convertPdfToImages(file, uploadQuality);
         if (pages.length > 0) {
           const page = pages[0]; // Import the first page
           let finalSrc = page.dataUrl;
@@ -308,8 +309,8 @@ export const ProjectMessengerWidget: React.FC<ProjectMessengerWidgetProps> = ({
           setIsUploading(false);
           return;
         }
-      } else if (['dwg', 'skp', 'skb', 'doc', 'docx'].includes(ext)) {
-        const cadPreview = await generateCadDocumentPreview(file);
+      } else if (['skp', 'skb', 'doc', 'docx'].includes(ext)) {
+        const cadPreview = await generateCadDocumentPreview(file, uploadQuality);
         let finalSrc = cadPreview.dataUrl;
         try {
           finalSrc = await uploadCanvasAssetToServer(cadPreview.blob, `${fileName}-preview.webp`);
@@ -743,14 +744,26 @@ export const ProjectMessengerWidget: React.FC<ProjectMessengerWidgetProps> = ({
                     onSubmit={(e) => handleSend(e)}
                     className="p-2.5 border-t border-slate-800 bg-slate-950/80 flex gap-2 items-center"
                   >
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                      title="Attach File"
-                    >
-                      <Paperclip size={18} />
-                    </button>
+                    <div className="flex flex-col gap-1 items-center">
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                        title="Attach File"
+                      >
+                        <Paperclip size={18} />
+                      </button>
+                      <select 
+                        value={uploadQuality}
+                        onChange={(e) => setUploadQuality(parseFloat(e.target.value))}
+                        title="Upload Quality"
+                        className="text-[9px] bg-slate-800 text-slate-300 border border-slate-700 rounded px-1 py-0.5 outline-none cursor-pointer hover:bg-slate-700 max-w-[40px]"
+                      >
+                        <option value={2.0}>Draft</option>
+                        <option value={4.0}>Std</option>
+                        <option value={6.0}>High</option>
+                      </select>
+                    </div>
                     <input
                       type="file"
                       ref={fileInputRef}

@@ -54,6 +54,7 @@ const KonvaImageElement = ({ el, props, activeTool, isSelected, isHovered }: { e
       opacity={el.opacity !== undefined ? el.opacity : 1}
       perfectDrawEnabled={true}
       listening={activeTool === 'select' || activeTool === 'eraser'}
+      imageSmoothingEnabled={false}
       {...props}
       strokeEnabled={isSelected || isHovered}
     />
